@@ -544,7 +544,8 @@ def register_snowflake_glue_routes(app, call_ai=None):
         # Attach view SQL to each view, and job scripts to each job, for the UI.
         views = [{**v, "sql": snowflake_ddl.get(v["full_name"], "")} for v in snowflake_objects["views"]]
         jobs_out = [{**j, "script": glue_scripts.get(j.get("name"), "")} for j in glue_jobs]
-        business = explain_business_logic(call_ai, snowflake_objects, snowflake_ddl, glue_jobs, glue_scripts)
+        ai = _bind_ai(call_ai, data.get('glue'))  # reuse the Glue connection's AWS creds for Bedrock
+        business = explain_business_logic(ai, snowflake_objects, snowflake_ddl, glue_jobs, glue_scripts)
 
         return jsonify({
             "success": True,
@@ -562,7 +563,8 @@ def register_snowflake_glue_routes(app, call_ai=None):
     def sfglue_explain():
         """Explain a single generated artifact (notebook / dbt model / DDL) in plain English."""
         data = request.get_json(silent=True) or {}
-        out = explain_artifact(call_ai, data.get('name', ''), data.get('code', ''), data.get('kind', 'code'))
+        ai = _bind_ai(call_ai, data.get('glue'))
+        out = explain_artifact(ai, data.get('name', ''), data.get('code', ''), data.get('kind', 'code'))
         return jsonify({"success": True, **out})
 
     @app.route('/api/sfglue/grade', methods=['POST'])
@@ -641,7 +643,8 @@ def register_snowflake_glue_routes(app, call_ai=None):
             return jsonify({"error": "Nothing converted yet to grade."}), 400
 
         out = grade_migration_fidelity(
-            call_ai, original=original, converted=converted, dialect=data.get('dialect', 'databricks'),
+            _bind_ai(call_ai, data.get('glue')), original=original, converted=converted,
+            dialect=data.get('dialect', 'databricks'),
         )
         # The model grading its OWN output is systematically overconfident, so this is a
         # TRIAGE signal (prioritise review), never the ship gate. The gate is the
@@ -788,6 +791,8 @@ def register_snowflake_glue_routes(app, call_ai=None):
         data = request.get_json(silent=True) or {}
         destination = data.get('destination') or {}
         models = data.get('models') or {}
+        # Bedrock (used only by the schema-error auto-repair) reuses the Glue connection's creds.
+        ai = _bind_ai(call_ai, data.get('glue'))
         if not models:
             return jsonify({"success": False, "error": "No dbt models to build. Generate the conversion first."}), 400
 
@@ -920,7 +925,7 @@ def register_snowflake_glue_routes(app, call_ai=None):
             # exactly the prior run-once behavior). Upstreams run first (dependency order),
             # so a failing ref()'s table is already built and its columns introspectable.
             outcome = attempt_build_with_repair(
-                run_sql, call_ai, m["statement"], introspect_cols, max_attempts=2)
+                run_sql, ai, m["statement"], introspect_cols, max_attempts=2)
             entry = {"name": name, "target": m["target_table"], "status": outcome["status"],
                      "message": outcome.get("message") or outcome["status"]}
             if outcome["status"] == "repaired":

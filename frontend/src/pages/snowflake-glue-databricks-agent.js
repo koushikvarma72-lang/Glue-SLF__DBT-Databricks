@@ -303,7 +303,7 @@ export function renderSfGlueDatabricksAgentPage(container) {
       { title: `Build ${n} model(s) into ${destination.catalog || 'lakehouse'}?`, confirmLabel: 'Build', danger: true }))) return;
     store.set({ sfGlueDestination: destination, isBuildingSfGlue: true });
     try {
-      const result = await api.buildSnowflakeGlueMigration({ destination, models });
+      const result = await api.buildSnowflakeGlueMigration({ destination, models, glue: store.get().sfGlueGlueConfig || {} });
       store.set({ sfGlueBuild: result, isBuildingSfGlue: false });
       notifyBuild(result);
     } catch (e) {

@@ -942,11 +942,11 @@ export const api = {
     return parseApiResponse(res, 'Failed to build review');
   },
 
-  async explainSnowflakeGlueArtifact({ name, code, kind } = {}) {
+  async explainSnowflakeGlueArtifact({ name, code, kind, glue } = {}) {
     const res = await fetch(`${API_BASE}/sfglue/explain`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, code, kind }),
+      body: JSON.stringify({ name, code, kind, glue }),
     });
     return parseApiResponse(res, 'Failed to explain');
   },
@@ -1000,11 +1000,11 @@ export const api = {
   // Build (populate) the migrated tables by running the dbt models in dependency order
   // on the SQL Warehouse. `models` is { name: sql } (conv.dbt_models with edits applied);
   // the server resolves {{ ref }}/{{ source }} to real tables at build time.
-  async buildSnowflakeGlueMigration({ destination, models } = {}) {
+  async buildSnowflakeGlueMigration({ destination, models, glue } = {}) {
     const res = await fetch(`${API_BASE}/sfglue/build`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ destination, models }),
+      body: JSON.stringify({ destination, models, glue }),
     });
     return parseApiResponse(res, 'Build failed');
   },

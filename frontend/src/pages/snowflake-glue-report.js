@@ -314,6 +314,7 @@ export function renderSfGlueReportPage(container) {
         name: 'Migration overview',
         code: summaryDigest(r),
         kind: 'migration summary',
+        glue: store.get().sfGlueGlueConfig || {},
       });
       const text = res.text || res.description || res.explanation || (typeof res === 'string' ? res : '');
       body.textContent = text || 'No summary returned.';
@@ -336,6 +337,7 @@ async function gradeSfGlueQuality(state, convSig) {
     const review = state.sfGlueReview || {};
     const conv = state.sfGlueConversion || {};
     const grade = await api.gradeSfGlue({
+      glue: state.sfGlueGlueConfig || {},   // reuse the Glue connection's AWS creds for Bedrock
       // Source tables + relationships are the ground truth the models were derived from
       // when the source has no views (all logic in Glue) — without them the grader sees
       // "no source material" and floors completeness/correctness.
