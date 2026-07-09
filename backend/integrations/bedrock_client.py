@@ -7,7 +7,8 @@ from backend.integrations.ai_client import AIClientError, _truncate_prompt
 logger = logging.getLogger(__name__)
 
 
-def _bedrock_session(profile_name=None, region_name=None):
+def _bedrock_session(profile_name=None, region_name=None,
+                     aws_access_key_id=None, aws_secret_access_key=None, aws_session_token=None):
     try:
         import boto3
     except ImportError as exc:
@@ -16,10 +17,18 @@ def _bedrock_session(profile_name=None, region_name=None):
         ) from exc
 
     session_kwargs = {}
-    if profile_name:
-        session_kwargs["profile_name"] = profile_name
     if region_name:
         session_kwargs["region_name"] = region_name
+    # A named profile takes precedence; otherwise use explicit keys if given (e.g. the
+    # credentials the user entered for the Glue connection). With neither, boto3 falls
+    # back to its default credential chain (env vars / SSO / instance role).
+    if profile_name:
+        session_kwargs["profile_name"] = profile_name
+    elif aws_access_key_id and aws_secret_access_key:
+        session_kwargs["aws_access_key_id"] = aws_access_key_id
+        session_kwargs["aws_secret_access_key"] = aws_secret_access_key
+        if aws_session_token:
+            session_kwargs["aws_session_token"] = aws_session_token
     return boto3.Session(**session_kwargs)
 
 
@@ -107,6 +116,9 @@ def call_bedrock_chat(
     *,
     region_name,
     profile_name=None,
+    aws_access_key_id=None,
+    aws_secret_access_key=None,
+    aws_session_token=None,
     system_prompt=None,
     temperature=0,
     top_p=1,
@@ -143,7 +155,10 @@ def call_bedrock_chat(
         ) from exc
 
     try:
-        session = _bedrock_session(profile_name=profile_name, region_name=region_name)
+        session = _bedrock_session(
+            profile_name=profile_name, region_name=region_name,
+            aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key,
+            aws_session_token=aws_session_token)
         client = session.client(
             "bedrock-runtime",
             config=Config(

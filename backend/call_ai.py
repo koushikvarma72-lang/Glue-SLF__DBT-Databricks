@@ -56,8 +56,14 @@ def _text(out):
     return str(out or "")
 
 
-def call_ai(prompt, system_prompt=None, max_tokens=4000, temperature=0, task=None):
-    """Dispatch a single chat completion to the configured provider (Bedrock by default)."""
+def call_ai(prompt, system_prompt=None, max_tokens=4000, temperature=0, task=None, aws_creds=None):
+    """Dispatch a single chat completion to the configured provider (Bedrock by default).
+
+    aws_creds (optional dict): AWS credentials to use for Bedrock — typically the ones the
+    user entered for the Glue connection, so the AI works without separately configuring the
+    server's environment. Keys: region, profile, access_key_id, secret_access_key,
+    session_token. Ignored for the Anthropic/OpenAI providers.
+    """
     provider = _provider()
     mt = max_tokens or 4000
 
@@ -80,8 +86,15 @@ def call_ai(prompt, system_prompt=None, max_tokens=4000, temperature=0, task=Non
             model, prompt, key, base_url=base_url, system_prompt=system_prompt,
             temperature=temperature, max_tokens=mt))
 
-    # Default: Amazon Bedrock via the Converse API (boto3 default credential chain).
+    # Default: Amazon Bedrock via the Converse API. Prefer credentials passed in from the
+    # request (the Glue connection's creds); otherwise fall back to the server environment /
+    # boto3 default credential chain.
+    creds = aws_creds or {}
     return _text(call_bedrock_chat(
-        _bedrock_model(task), prompt, region_name=_region(),
-        profile_name=os.environ.get("AWS_PROFILE"), system_prompt=system_prompt,
-        temperature=temperature, max_tokens=mt))
+        _bedrock_model(task), prompt,
+        region_name=creds.get("region") or _region(),
+        profile_name=creds.get("profile") or os.environ.get("AWS_PROFILE"),
+        aws_access_key_id=creds.get("access_key_id"),
+        aws_secret_access_key=creds.get("secret_access_key"),
+        aws_session_token=creds.get("session_token"),
+        system_prompt=system_prompt, temperature=temperature, max_tokens=mt))

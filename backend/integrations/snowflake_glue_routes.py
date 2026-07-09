@@ -220,6 +220,46 @@ def _ai_preflight(call_ai):
                        "`aws sso login`), then retry.")
 
 
+def _aws_creds_from_glue(glue):
+    """Pull AWS credentials out of a Glue connection payload so Bedrock can reuse them.
+
+    Returns a dict {region, profile?, access_key_id?, secret_access_key?, session_token?}
+    or None if the payload has nothing usable. A named profile wins over explicit keys
+    (matching the Glue client's own precedence)."""
+    if not isinstance(glue, dict):
+        return None
+    pick = lambda *ks: next((glue[k] for k in ks if glue.get(k)), None)
+    region = pick("region", "aws_region", "awsRegion")
+    profile = pick("profile_name", "profile", "profileName")
+    ak = pick("access_key_id", "accessKeyId", "aws_access_key_id")
+    sk = pick("secret_access_key", "secretAccessKey", "aws_secret_access_key")
+    st = pick("session_token", "sessionToken", "aws_session_token")
+    if profile:
+        return {"region": region, "profile": profile}
+    if ak and sk:
+        creds = {"region": region, "access_key_id": ak, "secret_access_key": sk}
+        if st:
+            creds["session_token"] = st
+        return creds
+    return {"region": region} if region else None
+
+
+def _bind_ai(call_ai, glue):
+    """Wrap call_ai so Bedrock uses the Glue connection's AWS creds (if any), letting the
+    AI work without separately configuring the server environment. No-op when there are no
+    creds or no call_ai — returns the original callable."""
+    if not call_ai:
+        return call_ai
+    creds = _aws_creds_from_glue(glue)
+    if not creds:
+        return call_ai
+
+    def bound(prompt, *args, **kwargs):
+        kwargs.setdefault("aws_creds", creds)
+        return call_ai(prompt, *args, **kwargs)
+    return bound
+
+
 def register_snowflake_glue_routes(app, call_ai=None):
     @app.route('/api/sfglue/snowflake/test-connection', methods=['POST'])
     def sfglue_snowflake_test():
@@ -337,6 +377,9 @@ def register_snowflake_glue_routes(app, call_ai=None):
         """Build the source→Snowflake lineage graph + duplicate findings + recommendations."""
         data = request.get_json(silent=True) or {}
         errors = {}
+        # Reuse the Glue connection's AWS creds for Bedrock so recommendations work without
+        # separately configuring the server environment.
+        ai = _bind_ai(call_ai, data.get('glue'))
 
         snowflake_objects = {"tables": [], "views": []}
         snowflake_ddl = {}
@@ -399,7 +442,7 @@ def register_snowflake_glue_routes(app, call_ai=None):
                 logger.info("DUP_GROUP base=%s cross_system=%s overlap=%s members=%s",
                             _g.get("base_name"), _g.get("cross_system"), _g.get("column_overlap"),
                             [f"{_m.get('full_name')}[{_m.get('system')}]" for _m in _g.get("members", [])])
-            analysis = recommend(call_ai, lineage, duplicates, snowflake_objects, glue_jobs)
+            analysis = recommend(ai, lineage, duplicates, snowflake_objects, glue_jobs)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Snowflake/Glue lineage build failed")
             return jsonify({"success": False, "error": f"Lineage analysis failed: {exc}"}), 500
@@ -424,7 +467,7 @@ def register_snowflake_glue_routes(app, call_ai=None):
                           "(`aws sso login`), then re-run Analyze lineage.") if ai_err else \
                          "The AI call failed. Check the provider/connection and re-run Analyze lineage."
             elif status == "empty":
-                ok, why = _ai_preflight(call_ai)
+                ok, why = _ai_preflight(ai)
                 if ok:
                     title = "AI recommendations unavailable — no usable output"
                     detail = "The AI provider is connected but returned no usable recommendations. Re-run Analyze lineage to retry."
@@ -432,7 +475,7 @@ def register_snowflake_glue_routes(app, call_ai=None):
                     title = "AI recommendations unavailable"
                     detail = why or "The AI provider isn't reachable right now — check Settings and retry."
             else:  # no_provider (or unknown → probe for the actionable reason)
-                _, ai_why = _ai_preflight(call_ai)
+                _, ai_why = _ai_preflight(ai)
                 title = "Connect an LLM to get migration recommendations"
                 detail = ai_why or "No AI provider is connected. Connect one in Settings, then re-run Analyze lineage."
             analysis["recommendations"] = [{
@@ -910,11 +953,15 @@ def register_snowflake_glue_routes(app, call_ai=None):
         if not lineage.get('nodes') or not selected:
             return jsonify({"success": False, "error": "Build lineage and select tables first."}), 400
 
+        # Reuse the Glue connection's AWS creds for Bedrock so conversion works without
+        # separately configuring the server environment.
+        ai = _bind_ai(call_ai, data.get('glue'))
+
         # No LLM, no conversion. The model translation REQUIRES an LLM; running without one
         # only emits un-translated scaffolds that look finished but aren't. Refuse up front
         # with an actionable notice instead. (The deterministic DDL/sources.yml are still
         # available via their own steps; this gate is specifically the AI-dependent convert.)
-        ai_ok, ai_why = _ai_preflight(call_ai)
+        ai_ok, ai_why = _ai_preflight(ai)
         if not ai_ok:
             return jsonify({"success": False, "needsAiConfig": True, "error": ai_why}), 503
 
@@ -1044,7 +1091,7 @@ def register_snowflake_glue_routes(app, call_ai=None):
         try:
             t_conv = time.perf_counter()
             artifacts = run_conversion(
-                call_ai, lineage, selected,
+                ai, lineage, selected,
                 jobs_io=jobs_io, glue_scripts=glue_scripts,
                 snowflake_ddl=snowflake_ddl, snowflake_columns=snowflake_columns,
                 destination=destination, relationships=relationships,
