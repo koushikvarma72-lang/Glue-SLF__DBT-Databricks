@@ -1,0 +1,11 @@
+# Standalone sfglue app (Snowflake + AWS Glue → Databricks + dbt).
+flask
+flask-cors
+requests
+sqlglot
+snowflake-connector-python
+boto3
+psycopg2-binary
+openpyxl
+pandas
+pyarrow
