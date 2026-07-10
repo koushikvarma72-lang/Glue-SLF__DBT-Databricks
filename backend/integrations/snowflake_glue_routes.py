@@ -1017,12 +1017,12 @@ def register_snowflake_glue_routes(app, call_ai=None):
             return scripts_map, errs
 
         def _fetch_postgres():
-            """When a Postgres source is connected, choose the tables to auto-land in bronze:
-            the Postgres tables also present in Snowflake (i.e. shipped there — the ones in
-            this migration), falling back to every Postgres table if the cross-check finds
-            none. The generated JDBC notebook is added to the conversion below so a
-            Postgres-origin source lands its data without a manual step. Best-effort: any
-            failure returns ([], {error}) and the conversion proceeds unaffected."""
+            """When a Postgres source is connected, land EVERY Postgres table in bronze as its
+            own Delta table (requirement: migrate all Postgres tables to Delta, not only the
+            subset that ships to Snowflake). Introspects Postgres and returns all tables across
+            all non-system schemas; the generated JDBC notebook is added to the conversion
+            below so a Postgres-origin source lands its data without a manual step. Best-effort:
+            any failure returns ([], {error}) and the conversion proceeds unaffected."""
             if not data.get('postgres'):
                 return [], {}
             try:
@@ -1031,20 +1031,7 @@ def register_snowflake_glue_routes(app, call_ai=None):
                 return [], {"postgres": str(exc)}
             if not pg.get('success'):
                 return [], {"postgres": pg.get('error')}
-            pg_tables = pg.get('tables') or []
-            chosen = pg_tables
-            if data.get('snowflake'):
-                try:
-                    sf = list_snowflake_objects(SnowflakeConnectionConfig.from_payload(data['snowflake']))
-                    if sf.get('success'):
-                        sf_names = {str(t.get('name') or '').lower() for t in (sf.get('tables') or [])}
-                        shipped = [t for t in pg_tables
-                                   if str(t.get('name') or '').lower() in sf_names]
-                        if shipped:
-                            chosen = shipped
-                except Exception as exc:  # noqa: BLE001 — cross-check is advisory
-                    logger.info("sfglue convert: postgres shipped cross-check skipped: %s", exc)
-            return chosen, {}
+            return pg.get('tables') or [], {}
 
         def _timed(label, fn):
             t = time.perf_counter()

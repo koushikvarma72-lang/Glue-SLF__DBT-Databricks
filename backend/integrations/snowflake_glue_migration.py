@@ -1338,7 +1338,12 @@ def generate_postgres_bronze_ingestion(tables, destination: dict, *, secret_scop
     d = destination or {}
     catalog = d.get("source_catalog") or d.get("catalog") or "main"
     schema = d.get("source_schema") or d.get("bronze_schema") or "bronze"
-    rows = []
+    # Build (postgres_dbtable, bronze_target) pairs. Landing EVERY Postgres table can surface
+    # same-named tables in different schemas (e.g. public.account + staging.account) that would
+    # otherwise overwrite each other in bronze — so schema-qualify only the colliding base
+    # names; unique ones keep their base name so dbt source('bronze', …) refs still resolve.
+    from collections import Counter
+    prelim = []
     for t in (tables or []):
         if not isinstance(t, dict):
             continue
@@ -1346,9 +1351,13 @@ def generate_postgres_bronze_ingestion(tables, destination: dict, *, secret_scop
         if not name:
             continue
         src_schema = (t.get("schema") or "public").strip()
-        base = _base_name(name)
-        # dbtable: fully-qualified Postgres source; bronze target: base name in the lakehouse.
-        rows.append((f'{src_schema}.{name}', base))
+        prelim.append((src_schema, name, _base_name(name)))
+    base_counts = Counter(base for _, _, base in prelim)
+    rows = []
+    for src_schema, name, base in prelim:
+        target = base if base_counts[base] == 1 else f"{src_schema}_{base}"
+        # dbtable: fully-qualified Postgres source; bronze target: base name (schema-qualified on collision).
+        rows.append((f'{src_schema}.{name}', target))
     if not rows:
         return ("# No Postgres tables selected for ingestion.\n"
                 "# Connect Postgres and pick the tables that originated there, then regenerate.\n")
