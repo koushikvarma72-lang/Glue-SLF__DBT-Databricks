@@ -224,7 +224,8 @@ export function renderSfGlueConnectPage(container) {
             ${!canContinue ? `<span role="status" style="font-size:12px;color:${bothFailed ? 'var(--error)' : 'var(--text-muted)'}">${continueHint}</span>` : ''}
           </div>
           <div style="display:flex;gap:8px">
-            <button class="btn btn-primary btn-lg" id="sfglue-continue" ${canContinue ? '' : 'disabled'}>Check lineage →</button>
+            <button class="btn btn-secondary btn-lg" id="sfglue-manual" ${canContinue ? '' : 'disabled'} title="Step through it manually">Check lineage →</button>
+            <button class="btn btn-primary btn-lg" id="sfglue-run" ${canContinue ? '' : 'disabled'} title="Run the whole migration automatically, with one review checkpoint">🚀 Run migration</button>
           </div>
         </div>
       </div>
@@ -340,11 +341,13 @@ export function renderSfGlueConnectPage(container) {
     }
   });
 
-  container.querySelector('#sfglue-continue')?.addEventListener('click', () => {
-    // Persist whatever's typed (so the lineage step uses current values).
+  // Persist whatever's typed (so the next step uses current values), then navigate.
+  const persistAndGo = (page) => {
     store.set({ sfGlueSnowflakeConfig: readSnowflake(), sfGlueGlueConfig: readGlue() });
-    store.navigate('sfglue-lineage');
-  });
+    store.navigate(page);
+  };
+  container.querySelector('#sfglue-manual')?.addEventListener('click', () => persistAndGo('sfglue-lineage'));
+  container.querySelector('#sfglue-run')?.addEventListener('click', () => persistAndGo('sfglue-run'));
 }
 
 export function destroySfGlueConnectPage() {

@@ -8,17 +8,22 @@ import { store } from './store.js';
 import { TOOLS, stepForPage, allToolPages, destroyAllToolPages } from './tools/registry.js';
 import { renderStepNav } from './components/step-nav.js';
 import { renderSfGlueHomePage, destroySfGlueHomePage } from './pages/sfglue-home.js';
+import { renderSfGlueRunPage, destroySfGlueRunPage } from './pages/snowflake-glue-run.js';
 
 const app = document.getElementById('app');
 const STEPS = TOOLS.snowflake_glue.steps;
-// The landing page sits BEFORE the workflow — it's not a numbered step, so it's
-// validated/routed here rather than through the registry.
+// The landing page and the automated Run page sit outside the numbered workflow —
+// they're not registry steps, so they're validated/routed here rather than via the registry.
 const HOME_PAGE = 'sfglue-home';
-const validNavPage = (hash) => hash === HOME_PAGE || allToolPages().includes(hash);
+const RUN_PAGE = 'sfglue-run';
+const validNavPage = (hash) => hash === HOME_PAGE || hash === RUN_PAGE || allToolPages().includes(hash);
 
 // ─── Route guards: gate each step on its prerequisite so a deep-link/back-forward
 // can't land on a step with no inputs. ────────────────────────────────────────
 const PAGE_GUARDS = {
+  'sfglue-run': (s) => (
+    s.sfGlueSnowflakeConnection?.success || s.sfGlueGlueConnection?.success ? null : 'sfglue-connect'
+  ),
   'sfglue-lineage': (s) => (
     s.sfGlueSnowflakeConnection?.success || s.sfGlueGlueConnection?.success ? null : 'sfglue-connect'
   ),
@@ -134,6 +139,9 @@ window.addEventListener('resize', () => { lastPillRect = null; positionNavPill()
 
 function renderCurrentPage(container, page) {
   destroyAllToolPages();
+  destroySfGlueRunPage();
+  // The automated Run page isn't a registry step — dispatch it explicitly.
+  if (page === RUN_PAGE) { renderSfGlueRunPage(container); return; }
   const step = stepForPage(page);
   if (step) { step.render(container); return; }
   // Fallback: unknown page → Connect.

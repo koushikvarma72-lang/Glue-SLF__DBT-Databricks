@@ -263,7 +263,8 @@ function snowflakeConfig(state) {
 
 // The reconcilable pairs: each Snowflake table/view in scope → its Databricks target,
 // with a primary key prefilled from the declared relationships when we have one.
-function reconcilePairs(state) {
+// Exported so the automated Run flow can reuse the exact same pairing logic.
+export function reconcilePairs(state) {
   const conv = state.sfGlueConversion || {};
   const targets = ((conv.plan || {}).targets || []).filter(t => t.system === 'snowflake' && t.target);
   const rels = (state.sfGlueReview && state.sfGlueReview.relationships) || [];
