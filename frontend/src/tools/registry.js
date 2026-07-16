@@ -11,6 +11,7 @@ import { renderSfGlueReviewPage, destroySfGlueReviewPage } from '../pages/snowfl
 import { renderSfGlueDatabricksAgentPage, destroySfGlueDatabricksAgentPage } from '../pages/snowflake-glue-databricks-agent.js';
 import { renderSfGlueDbtAgentPage, destroySfGlueDbtAgentPage } from '../pages/snowflake-glue-dbt-agent.js';
 import { renderSfGlueReportPage, destroySfGlueReportPage } from '../pages/snowflake-glue-report.js';
+import { renderSfGlueMapPage, destroySfGlueMapPage } from '../pages/snowflake-glue-map.js';
 
 const sfGlueConnected = s =>
   !!((s.sfGlueSnowflakeConnection && s.sfGlueSnowflakeConnection.success) ||
@@ -31,6 +32,8 @@ export const TOOLS = {
         render: renderSfGlueDatabricksAgentPage, destroy: destroySfGlueDatabricksAgentPage },
       { page: 'sfglue-dbt-agent', label: 'DBT Agent', enabled: s => !!s.sfGlueLineage,
         render: renderSfGlueDbtAgentPage, destroy: destroySfGlueDbtAgentPage },
+      { page: 'sfglue-map', label: 'Migration Map', enabled: s => !!s.sfGlueConversion,
+        render: renderSfGlueMapPage, destroy: destroySfGlueMapPage },
       { page: 'sfglue-report', label: 'Report', enabled: s => !!s.sfGlueLineage || !!s.sfGlueConversion,
         render: renderSfGlueReportPage, destroy: destroySfGlueReportPage },
     ],

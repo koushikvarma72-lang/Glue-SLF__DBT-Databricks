@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1900" height="1648" viewBox="0 0 1900 1648" font-family="Helvetica, Arial, sans-serif">
+<rect width="1900" height="1648" fill="#FFFFFF"/>
+<text x="70" y="72" font-size="15" font-weight="bold" fill="#1C7293" letter-spacing="4">APPLE TO APPLE</text>
+<text x="70" y="122" font-size="40" font-weight="bold" fill="#10222E">Every part of the legacy estate → its Databricks twin</text>
+<text x="70" y="156" font-size="17" fill="#5B6B75">Snowflake + AWS Glue + Airflow (config-driven CDL)  →  Databricks + dbt + Unity Catalog · AI only where language changes, deterministic everywhere else</text>
+<text x="390.0" y="194" font-size="18" font-weight="bold" fill="#1B6E9C" text-anchor="middle">LEGACY ESTATE</text>
+<text x="1510.0" y="194" font-size="18" font-weight="bold" fill="#E8502E" text-anchor="middle">DATABRICKS TARGET</text>
+<rect x="70" y="210" width="640" height="96" rx="12" fill="#EAF1F6" stroke="#1B6E9C" stroke-width="1.5"/>
+<text x="94" y="250" font-size="20" font-weight="bold" fill="#10222E">S3 landing files + Glue E+L jobs</text>
+<text x="94" y="278" font-size="14.5" fill="#5B6B75">landing/ → raw/ ingestion (7 generic engines)</text>
+<rect x="1190" y="210" width="640" height="96" rx="12" fill="#FDEEE8" stroke="#E8502E" stroke-width="1.5"/>
+<text x="1214" y="250" font-size="20" font-weight="bold" fill="#10222E">Bronze ingest notebooks</text>
+<text x="1214" y="278" font-size="14.5" fill="#5B6B75">PySpark → Delta, S3 source kept as parameters</text>
+<line x1="716" y1="258.0" x2="1168" y2="258.0" stroke="#E8502E" stroke-width="3"/>
+<path d="M 1168 250.0 L 1184 258.0 L 1168 266.0 Z" fill="#E8502E"/>
+<rect x="918.0" y="241.0" width="64" height="34" rx="17" fill="#FFFFFF" stroke="#E8502E" stroke-width="2.5"/>
+<text x="950.0" y="264.0" font-size="15" font-weight="bold" fill="#E8502E" text-anchor="middle">AI</text>
+<rect x="70" y="324" width="640" height="96" rx="12" fill="#EAF1F6" stroke="#1B6E9C" stroke-width="1.5"/>
+<text x="94" y="364" font-size="20" font-weight="bold" fill="#10222E">query_configuration SQL rows</text>
+<text x="94" y="392" font-size="14.5" fill="#5B6B75">transform logic stored as config-table rows</text>
+<rect x="1190" y="324" width="640" height="96" rx="12" fill="#FDEEE8" stroke="#E8502E" stroke-width="1.5"/>
+<text x="1214" y="364" font-size="20" font-weight="bold" fill="#10222E">18 dbt models (silver / gold)</text>
+<text x="1214" y="392" font-size="14.5" fill="#5B6B75">governed, versioned, ref()/source() wired</text>
+<line x1="716" y1="372.0" x2="1168" y2="372.0" stroke="#E8502E" stroke-width="3"/>
+<path d="M 1168 364.0 L 1184 372.0 L 1168 380.0 Z" fill="#E8502E"/>
+<rect x="918.0" y="355.0" width="64" height="34" rx="17" fill="#FFFFFF" stroke="#E8502E" stroke-width="2.5"/>
+<text x="950.0" y="378.0" font-size="15" font-weight="bold" fill="#E8502E" text-anchor="middle">AI</text>
+<rect x="70" y="438" width="640" height="96" rx="12" fill="#EAF1F6" stroke="#1B6E9C" stroke-width="1.5"/>
+<text x="94" y="478" font-size="20" font-weight="bold" fill="#10222E">Procedural transform jobs</text>
+<text x="94" y="506" font-size="14.5" fill="#5B6B75">config loops · Excel reads · UDFs</text>
+<rect x="1190" y="438" width="640" height="96" rx="12" fill="#FDEEE8" stroke="#E8502E" stroke-width="1.5"/>
+<text x="1214" y="478" font-size="20" font-weight="bold" fill="#10222E">PySpark transform notebooks</text>
+<text x="1214" y="506" font-size="14.5" fill="#5B6B75">logic ported whole — nothing lost to SQL</text>
+<line x1="716" y1="486.0" x2="1168" y2="486.0" stroke="#E8502E" stroke-width="3"/>
+<path d="M 1168 478.0 L 1184 486.0 L 1168 494.0 Z" fill="#E8502E"/>
+<rect x="918.0" y="469.0" width="64" height="34" rx="17" fill="#FFFFFF" stroke="#E8502E" stroke-width="2.5"/>
+<text x="950.0" y="492.0" font-size="15" font-weight="bold" fill="#E8502E" text-anchor="middle">AI</text>
+<rect x="70" y="552" width="640" height="96" rx="12" fill="#EAF1F6" stroke="#1B6E9C" stroke-width="1.5"/>
+<text x="94" y="592" font-size="20" font-weight="bold" fill="#10222E">Framework tables (RDS Postgres)</text>
+<text x="94" y="620" font-size="14.5" fill="#5B6B75">configuration_master · ledgers · stitching</text>
+<rect x="1190" y="552" width="640" height="96" rx="12" fill="#EDF5F7" stroke="#1C7293" stroke-width="1.5"/>
+<text x="1214" y="592" font-size="20" font-weight="bold" fill="#10222E">control__* Delta tables</text>
+<text x="1214" y="620" font-size="14.5" fill="#5B6B75">Unity Catalog control schema DDL</text>
+<line x1="716" y1="600.0" x2="1168" y2="600.0" stroke="#1C7293" stroke-width="3"/>
+<path d="M 1168 592.0 L 1184 600.0 L 1168 608.0 Z" fill="#1C7293"/>
+<rect x="918.0" y="583.0" width="64" height="34" rx="17" fill="#FFFFFF" stroke="#1C7293" stroke-width="2.5"/>
+<text x="950.0" y="606.0" font-size="15" font-weight="bold" fill="#1C7293" text-anchor="middle">DET</text>
+<rect x="70" y="666" width="640" height="96" rx="12" fill="#EAF1F6" stroke="#1B6E9C" stroke-width="1.5"/>
+<text x="94" y="706" font-size="20" font-weight="bold" fill="#10222E">Batch lifecycle + file audit</text>
+<text x="94" y="734" font-size="14.5" fill="#5B6B75">parent_batch_open / close · file_process_log</text>
+<rect x="1190" y="666" width="640" height="96" rx="12" fill="#EDF5F7" stroke="#1C7293" stroke-width="1.5"/>
+<text x="1214" y="706" font-size="20" font-weight="bold" fill="#10222E">fw_* framework notebooks</text>
+<text x="1214" y="734" font-size="14.5" fill="#5B6B75">bracket every Job run — ledger survives</text>
+<line x1="716" y1="714.0" x2="1168" y2="714.0" stroke="#1C7293" stroke-width="3"/>
+<path d="M 1168 706.0 L 1184 714.0 L 1168 722.0 Z" fill="#1C7293"/>
+<rect x="918.0" y="697.0" width="64" height="34" rx="17" fill="#FFFFFF" stroke="#1C7293" stroke-width="2.5"/>
+<text x="950.0" y="720.0" font-size="15" font-weight="bold" fill="#1C7293" text-anchor="middle">DET</text>
+<rect x="70" y="780" width="640" height="96" rx="12" fill="#EAF1F6" stroke="#1B6E9C" stroke-width="1.5"/>
+<text x="94" y="820" font-size="20" font-weight="bold" fill="#10222E">dq_rules</text>
+<text x="94" y="848" font-size="14.5" fill="#5B6B75">per-column checks + reject routing</text>
+<rect x="1190" y="780" width="640" height="96" rx="12" fill="#EDF5F7" stroke="#1C7293" stroke-width="1.5"/>
+<text x="1214" y="820" font-size="20" font-weight="bold" fill="#10222E">dbt tests + __rejects models</text>
+<text x="1214" y="848" font-size="14.5" fill="#5B6B75">quarantine models &amp; notebook checks</text>
+<line x1="716" y1="828.0" x2="1168" y2="828.0" stroke="#1C7293" stroke-width="3"/>
+<path d="M 1168 820.0 L 1184 828.0 L 1168 836.0 Z" fill="#1C7293"/>
+<rect x="918.0" y="811.0" width="64" height="34" rx="17" fill="#FFFFFF" stroke="#1C7293" stroke-width="2.5"/>
+<text x="950.0" y="834.0" font-size="15" font-weight="bold" fill="#1C7293" text-anchor="middle">DET</text>
+<rect x="70" y="894" width="640" height="96" rx="12" fill="#EAF1F6" stroke="#1B6E9C" stroke-width="1.5"/>
+<text x="94" y="934" font-size="20" font-weight="bold" fill="#10222E">Glue Workflow  cdl_ingest</text>
+<text x="94" y="962" font-size="14.5" fill="#5B6B75">graph · trigger predicates · cron</text>
+<rect x="1190" y="894" width="640" height="96" rx="12" fill="#EDF5F7" stroke="#1C7293" stroke-width="1.5"/>
+<text x="1214" y="934" font-size="20" font-weight="bold" fill="#10222E">Databricks Job</text>
+<text x="1214" y="962" font-size="14.5" fill="#5B6B75">Jobs 2.1 JSON + DAB YAML, idempotent by tag</text>
+<line x1="716" y1="942.0" x2="1168" y2="942.0" stroke="#1C7293" stroke-width="3"/>
+<path d="M 1168 934.0 L 1184 942.0 L 1168 950.0 Z" fill="#1C7293"/>
+<rect x="918.0" y="925.0" width="64" height="34" rx="17" fill="#FFFFFF" stroke="#1C7293" stroke-width="2.5"/>
+<text x="950.0" y="948.0" font-size="15" font-weight="bold" fill="#1C7293" text-anchor="middle">DET</text>
+<rect x="70" y="1008" width="640" height="96" rx="12" fill="#EAF1F6" stroke="#1B6E9C" stroke-width="1.5"/>
+<text x="94" y="1048" font-size="20" font-weight="bold" fill="#10222E">Airflow DAG  cdl_ingest_airflow</text>
+<text x="94" y="1076" font-size="14.5" fill="#5B6B75">pasted from the Code tab — zero server access</text>
+<rect x="1190" y="1008" width="640" height="96" rx="12" fill="#EDF5F7" stroke="#1C7293" stroke-width="1.5"/>
+<text x="1214" y="1048" font-size="20" font-weight="bold" fill="#10222E">Databricks Job (same path)</text>
+<text x="1214" y="1076" font-size="14.5" fill="#5B6B75">AST-parsed; same artifact map as Glue</text>
+<line x1="716" y1="1056.0" x2="1168" y2="1056.0" stroke="#1C7293" stroke-width="3"/>
+<path d="M 1168 1048.0 L 1184 1056.0 L 1168 1064.0 Z" fill="#1C7293"/>
+<rect x="918.0" y="1039.0" width="64" height="34" rx="17" fill="#FFFFFF" stroke="#1C7293" stroke-width="2.5"/>
+<text x="950.0" y="1062.0" font-size="15" font-weight="bold" fill="#1C7293" text-anchor="middle">DET</text>
+<rect x="70" y="1122" width="640" height="96" rx="12" fill="#EAF1F6" stroke="#1B6E9C" stroke-width="1.5"/>
+<text x="94" y="1162" font-size="20" font-weight="bold" fill="#10222E">S3KeySensor</text>
+<text x="94" y="1190" font-size="14.5" fill="#5B6B75">polling task gating on file arrival</text>
+<rect x="1190" y="1122" width="640" height="96" rx="12" fill="#EDF5F7" stroke="#1C7293" stroke-width="1.5"/>
+<text x="1214" y="1162" font-size="20" font-weight="bold" fill="#10222E">File-arrival trigger</text>
+<text x="1214" y="1190" font-size="14.5" fill="#5B6B75">native Job trigger — polling task dropped</text>
+<line x1="716" y1="1170.0" x2="1168" y2="1170.0" stroke="#1C7293" stroke-width="3"/>
+<path d="M 1168 1162.0 L 1184 1170.0 L 1168 1178.0 Z" fill="#1C7293"/>
+<rect x="918.0" y="1153.0" width="64" height="34" rx="17" fill="#FFFFFF" stroke="#1C7293" stroke-width="2.5"/>
+<text x="950.0" y="1176.0" font-size="15" font-weight="bold" fill="#1C7293" text-anchor="middle">DET</text>
+<rect x="70" y="1236" width="640" height="96" rx="12" fill="#EAF1F6" stroke="#1B6E9C" stroke-width="1.5"/>
+<text x="94" y="1276" font-size="20" font-weight="bold" fill="#10222E">Lake Formation grants</text>
+<text x="94" y="1304" font-size="14.5" fill="#5B6B75">table/database permissions</text>
+<rect x="1190" y="1236" width="640" height="96" rx="12" fill="#EDF5F7" stroke="#1C7293" stroke-width="1.5"/>
+<text x="1214" y="1276" font-size="20" font-weight="bold" fill="#10222E">Unity Catalog GRANT SQL</text>
+<text x="1214" y="1304" font-size="14.5" fill="#5B6B75">reviewable diff — never blind-applied</text>
+<line x1="716" y1="1284.0" x2="1168" y2="1284.0" stroke="#1C7293" stroke-width="3"/>
+<path d="M 1168 1276.0 L 1184 1284.0 L 1168 1292.0 Z" fill="#1C7293"/>
+<rect x="918.0" y="1267.0" width="64" height="34" rx="17" fill="#FFFFFF" stroke="#1C7293" stroke-width="2.5"/>
+<text x="950.0" y="1290.0" font-size="15" font-weight="bold" fill="#1C7293" text-anchor="middle">DET</text>
+<rect x="70" y="1350" width="640" height="96" rx="12" fill="#EAF1F6" stroke="#1B6E9C" stroke-width="1.5"/>
+<text x="94" y="1390" font-size="20" font-weight="bold" fill="#10222E">Snowflake publish layer</text>
+<text x="94" y="1418" font-size="14.5" fill="#5B6B75">gold star schema serving consumers</text>
+<rect x="1190" y="1350" width="640" height="96" rx="12" fill="#EDF5F7" stroke="#1C7293" stroke-width="1.5"/>
+<text x="1214" y="1390" font-size="20" font-weight="bold" fill="#10222E">Unity Catalog gold schema</text>
+<text x="1214" y="1418" font-size="14.5" fill="#5B6B75">Databricks IS the warehouse</text>
+<line x1="716" y1="1398.0" x2="1168" y2="1398.0" stroke="#1C7293" stroke-width="3"/>
+<path d="M 1168 1390.0 L 1184 1398.0 L 1168 1406.0 Z" fill="#1C7293"/>
+<rect x="918.0" y="1381.0" width="64" height="34" rx="17" fill="#FFFFFF" stroke="#1C7293" stroke-width="2.5"/>
+<text x="950.0" y="1404.0" font-size="15" font-weight="bold" fill="#1C7293" text-anchor="middle">DET</text>
+<rect x="70" y="1464" width="640" height="96" rx="12" fill="#F4F4F4" stroke="#C9CFD3" stroke-width="1.5"/>
+<text x="94" y="1504" font-size="20" font-weight="bold" fill="#5B6B75">publish_to_snowflake job</text>
+<text x="94" y="1532" font-size="14.5" fill="#5B6B75">replication into Snowflake</text>
+<rect x="1190" y="1464" width="640" height="96" rx="12" fill="#F4F4F4" stroke="#C9CFD3" stroke-width="1.5"/>
+<text x="1214" y="1504" font-size="20" font-weight="bold" fill="#5B6B75">— retired —</text>
+<text x="1214" y="1532" font-size="14.5" fill="#5B6B75">the one job the migration makes obsolete</text>
+<line x1="716" y1="1512.0" x2="1168" y2="1512.0" stroke="#5B6B75" stroke-width="3" stroke-dasharray="7,7"/>
+<rect x="928.0" y="1495.0" width="44" height="34" rx="17" fill="#FFFFFF" stroke="#5B6B75" stroke-width="2.5"/>
+<text x="950.0" y="1518.0" font-size="15" font-weight="bold" fill="#5B6B75" text-anchor="middle"></text>
+<rect x="70" y="1586" width="64" height="32" rx="16" fill="#FFFFFF" stroke="#E8502E" stroke-width="2.5"/>
+<text x="102.0" y="1608" font-size="15" font-weight="bold" fill="#E8502E" text-anchor="middle">AI</text>
+<text x="146" y="1608" font-size="15" fill="#5B6B75">Bedrock / Claude conversion (guard-railed, scaffold fallback)</text>
+<rect x="630" y="1586" width="64" height="32" rx="16" fill="#FFFFFF" stroke="#1C7293" stroke-width="2.5"/>
+<text x="662.0" y="1608" font-size="15" font-weight="bold" fill="#1C7293" text-anchor="middle">DET</text>
+<text x="706" y="1608" font-size="15" fill="#5B6B75">deterministic engine, unit-tested — no AI</text>
+<rect x="1110" y="1586" width="44" height="32" rx="16" fill="#FFFFFF" stroke="#5B6B75" stroke-width="2.5"/>
+<line x1="1125" y1="1595" x2="1139" y2="1609" stroke="#5B6B75" stroke-width="2.5"/>
+<line x1="1139" y1="1595" x2="1125" y2="1609" stroke="#5B6B75" stroke-width="2.5"/>
+<text x="1166" y="1608" font-size="15" fill="#5B6B75">intentionally retired by the migration</text>
+<text x="1830" y="1608" font-size="14" fill="#9AAAB2" text-anchor="end">sfglue — Snowflake + Glue → Databricks/dbt</text>
+<line x1="943.0" y1="1505" x2="957.0" y2="1519" stroke="#5B6B75" stroke-width="2.5"/><line x1="957.0" y1="1505" x2="943.0" y2="1519" stroke="#5B6B75" stroke-width="2.5"/></svg>

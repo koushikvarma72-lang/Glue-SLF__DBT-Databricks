@@ -47,15 +47,21 @@ def _mask(sql: str) -> str:
     return masked
 
 
-def _split_statements(masked: str, original: str) -> list[str]:
-    """Split on top-level ``;`` using masked text; return original slices."""
+def _split_statements(masked: str, original: str) -> list[tuple[str, str]]:
+    """Split on top-level ``;`` using masked text; return (original, masked) slices.
+
+    Filtering and keyword checks must use the MASKED slice: a slice that is only
+    comments/whitespace is not a statement (so ``CREATE …; -- trailing note`` is
+    one statement, not two), and a leading ``-- provenance comment`` line —
+    which every generated DDL carries — must not hide the CREATE verb.
+    """
     parts, start = [], 0
     for i, ch in enumerate(masked):
         if ch == ';':
-            parts.append(original[start:i])
+            parts.append((original[start:i], masked[start:i]))
             start = i + 1
-    parts.append(original[start:])
-    return [p for p in parts if p.strip()]
+    parts.append((original[start:], masked[start:]))
+    return [p for p in parts if p[1].strip()]
 
 
 def assert_safe_ddl(sql: str, *, label: str = 'statement') -> None:
@@ -78,7 +84,9 @@ def assert_safe_ddl(sql: str, *, label: str = 'statement') -> None:
             f'{label} contains {len(statements)} statements; only a single '
             'CREATE statement may be executed here.'
         )
-    lead = re.match(r'\s*([A-Za-z_]+)', statements[0])
+    # Verb check on the MASKED slice: comments are blanked to spaces there, so a
+    # leading '-- migrated from …' header can't shadow (or spoof) the keyword.
+    lead = re.match(r'\s*([A-Za-z_]+)', statements[0][1])
     verb = (lead.group(1) if lead else '').upper()
     if verb != 'CREATE':
         raise UnsafeSqlError(

@@ -347,6 +347,24 @@ def attempt_build_with_repair(run_sql, call_ai, statement, introspect_cols, *, m
                 "statement": statement, "repair_attempts": 0}
 
     last_error = res.get("message") or res.get("error") or "failed"
+
+    # Deterministic pre-repair: CREATE OR REPLACE TABLE cannot overwrite an existing
+    # VIEW of the same name (e.g. from an earlier dbt run that materialized stg_* as
+    # views). Drop the conflicting view and rerun the ORIGINAL statement — no AI needed.
+    if "CANNOT_WRITE_INTO_VIEW" in str(last_error).upper():
+        m = re.search(r"(?i)create\s+or\s+replace\s+table\s+([`\w.]+)", statement)
+        if m:
+            try:
+                run_sql(f"DROP VIEW IF EXISTS {m.group(1)}")
+                rerun = run_sql(statement) or {}
+                if rerun.get("success"):
+                    return {"status": "repaired",
+                            "message": "created (dropped conflicting view of the same name)",
+                            "statement": statement, "repair_attempts": 0}
+                last_error = rerun.get("message") or rerun.get("error") or last_error
+            except Exception as exc:  # noqa: BLE001 — fall through to AI repair
+                logger.warning("build pre-repair: drop-view fallback failed: %s", exc)
+
     # No AI → can't self-heal. Degrade to today's behavior: report the failure as-is.
     if not call_ai:
         return {"status": "failed", "message": last_error, "repair_attempts": 0}

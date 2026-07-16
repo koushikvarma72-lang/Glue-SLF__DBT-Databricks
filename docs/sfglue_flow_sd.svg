@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="800" viewBox="0 0 1800 800" font-family="Helvetica, Arial, sans-serif" font-size="15" fill="#1a1a1a">
+<rect width="1800" height="800" fill="#ffffff"/>
+<text x="60" y="52" text-anchor="start" font-size="26" font-weight="bold">sfglue — the migration as a flow</text>
+<text x="60" y="78" text-anchor="start" font-size="14">legacy estate in · Databricks pipeline out · every valve is a tool stage</text>
+<g transform="translate(80,430) scale(1.1)"><path d="M -30 10 a 14 14 0 0 1 -2 -27 a 16 16 0 0 1 26 -12 a 15 15 0 0 1 27 3 a 13 13 0 0 1 6 24 a 11 11 0 0 1 -12 14 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/></g>
+<line x1="108" y1="423" x2="190" y2="423" stroke="#1a1a1a" stroke-width="1.6"/>
+<line x1="108" y1="437" x2="190" y2="437" stroke="#1a1a1a" stroke-width="1.6"/>
+<path d="M 190 415 L 220 445 L 220 415 L 190 445 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/>
+<text x="205" y="472" text-anchor="middle" font-size="15">introspect</text>
+<line x1="220" y1="423" x2="249" y2="423" stroke="#1a1a1a" stroke-width="1.6"/>
+<line x1="220" y1="437" x2="249" y2="437" stroke="#1a1a1a" stroke-width="1.6"/>
+<path d="M 249 416 L 275 430 L 249 444 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/>
+<rect x="275" y="400.0" width="160" height="60" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.7"/>
+<text x="355.0" y="426.0" text-anchor="middle">Legacy estate</text>
+<text x="355.0" y="444.0" text-anchor="middle">inventory</text>
+<line x1="435" y1="423" x2="530" y2="423" stroke="#1a1a1a" stroke-width="1.6"/>
+<line x1="435" y1="437" x2="530" y2="437" stroke="#1a1a1a" stroke-width="1.6"/>
+<path d="M 530 415 L 560 445 L 560 415 L 530 445 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/>
+<text x="545" y="472" text-anchor="middle" font-size="15">convert</text>
+<line x1="560" y1="423" x2="589" y2="423" stroke="#1a1a1a" stroke-width="1.6"/>
+<line x1="560" y1="437" x2="589" y2="437" stroke="#1a1a1a" stroke-width="1.6"/>
+<path d="M 589 416 L 615 430 L 589 444 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/>
+<rect x="615" y="400.0" width="175" height="60" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.7"/>
+<text x="702.5" y="426.0" text-anchor="middle">Generated</text>
+<text x="702.5" y="444.0" text-anchor="middle">artifacts</text>
+<line x1="790" y1="423" x2="890" y2="423" stroke="#1a1a1a" stroke-width="1.6"/>
+<line x1="790" y1="437" x2="890" y2="437" stroke="#1a1a1a" stroke-width="1.6"/>
+<path d="M 890 415 L 920 445 L 920 415 L 890 445 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/>
+<text x="905" y="472" text-anchor="middle" font-size="15">build + reconcile</text>
+<line x1="920" y1="423" x2="949" y2="423" stroke="#1a1a1a" stroke-width="1.6"/>
+<line x1="920" y1="437" x2="949" y2="437" stroke="#1a1a1a" stroke-width="1.6"/>
+<path d="M 949 416 L 975 430 L 949 444 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/>
+<rect x="975" y="400.0" width="175" height="60" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.7"/>
+<text x="1062.5" y="426.0" text-anchor="middle">Databricks</text>
+<text x="1062.5" y="444.0" text-anchor="middle">objects</text>
+<line x1="1150" y1="423" x2="1250" y2="423" stroke="#1a1a1a" stroke-width="1.6"/>
+<line x1="1150" y1="437" x2="1250" y2="437" stroke="#1a1a1a" stroke-width="1.6"/>
+<path d="M 1250 415 L 1280 445 L 1280 415 L 1250 445 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/>
+<text x="1265" y="472" text-anchor="middle" font-size="15">deploy</text>
+<line x1="1280" y1="423" x2="1309" y2="423" stroke="#1a1a1a" stroke-width="1.6"/>
+<line x1="1280" y1="437" x2="1309" y2="437" stroke="#1a1a1a" stroke-width="1.6"/>
+<path d="M 1309 416 L 1335 430 L 1309 444 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/>
+<rect x="1335" y="400.0" width="185" height="60" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.7"/>
+<text x="1427.5" y="426.0" text-anchor="middle">Live migrated</text>
+<text x="1427.5" y="444.0" text-anchor="middle">pipeline</text>
+<line x1="1520" y1="423" x2="1625" y2="423" stroke="#1a1a1a" stroke-width="1.6"/>
+<line x1="1520" y1="437" x2="1625" y2="437" stroke="#1a1a1a" stroke-width="1.6"/>
+<path d="M 1625 415 L 1655 445 L 1655 415 L 1625 445 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/>
+<text x="1640" y="472" text-anchor="middle" font-size="15">run gate</text>
+<line x1="1655" y1="423" x2="1734" y2="423" stroke="#1a1a1a" stroke-width="1.6"/>
+<line x1="1655" y1="437" x2="1734" y2="437" stroke="#1a1a1a" stroke-width="1.6"/>
+<path d="M 1734 416 L 1760 430 L 1734 444 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/>
+<text x="120" y="190" text-anchor="middle" font-size="13.5">Glue catalog + scripts ·</text>
+<text x="120" y="208" text-anchor="middle" font-size="13.5">Snowflake schemas</text>
+<path d="M 130 226 Q 124.34 329.74 197 404" fill="none" stroke="#1a1a1a" stroke-width="1.3"/>
+<path d="M 197 404 L 188.13256356463563 400.08482809256446 L 193.27887148296753 395.04940211160573 Z" fill="#1a1a1a"/>
+<text x="300" y="122" text-anchor="middle" font-size="13.5">control DB — 12 framework</text>
+<text x="300" y="140" text-anchor="middle" font-size="13.5">table fingerprints</text>
+<path d="M 300 158 Q 183.3 253.9 213 402" fill="none" stroke="#1a1a1a" stroke-width="1.3"/>
+<path d="M 213 402 L 207.70064839079265 393.8835431053943 L 214.76009496892271 392.4678404492805 Z" fill="#1a1a1a"/>
+<text x="95" y="320" text-anchor="middle" font-size="13.5">Airflow DAG —</text>
+<text x="95" y="338" text-anchor="middle" font-size="13.5">pasted from Code tab</text>
+<path d="M 140 352 Q 176.66 373.82 191 414" fill="none" stroke="#1a1a1a" stroke-width="1.3"/>
+<path d="M 191 414 L 184.5843053742307 406.73371742437206 L 191.36538153004844 404.31359218608367 Z" fill="#1a1a1a"/>
+<text x="505" y="200" text-anchor="middle" font-size="13.5">AI (Claude on Bedrock):</text>
+<text x="505" y="218" text-anchor="middle" font-size="13.5">SQL → dbt models · PySpark → notebooks</text>
+<path d="M 505 236 Q 488.4 326.8 539 404" fill="none" stroke="#1a1a1a" stroke-width="1.3"/>
+<path d="M 539 404 L 531.0554622120118 398.4462337702036 L 537.077242449937 394.49931563498313 Z" fill="#1a1a1a"/>
+<text x="700" y="118" text-anchor="middle" font-size="13.5">deterministic engines: DDL · Jobs ·</text>
+<text x="700" y="136" text-anchor="middle" font-size="13.5">DQ tests · UC grants — no AI</text>
+<path d="M 690 154 Q 548.1 237.5 555 402" fill="none" stroke="#1a1a1a" stroke-width="1.3"/>
+<path d="M 555 402 L 551.0259868186641 393.1587772771766 L 558.2196612982212 392.85703652393073 Z" fill="#1a1a1a"/>
+<text x="870" y="205" text-anchor="middle" font-size="13.5">ONE human checkpoint</text>
+<text x="870" y="223" text-anchor="middle" font-size="13.5">+ Unity Catalog precheck</text>
+<path d="M 870 241 Q 855.16 327.72 899 404" fill="none" stroke="#1a1a1a" stroke-width="1.3"/>
+<path d="M 899 404 L 891.3941404647451 397.9907653790212 L 897.6366083510077 394.4030649053222 Z" fill="#1a1a1a"/>
+<text x="1075" y="128" text-anchor="middle" font-size="13.5">row-count reconcile</text>
+<text x="1075" y="146" text-anchor="middle" font-size="13.5">source vs target</text>
+<path d="M 1060 164 Q 920.86 242.4 915 402" fill="none" stroke="#1a1a1a" stroke-width="1.3"/>
+<path d="M 915 402 L 911.7326527787095 392.8739689823272 L 918.9278044381501 393.1381518690711 Z" fill="#1a1a1a"/>
+<text x="1230" y="200" text-anchor="middle" font-size="13.5">artifact map — same for Glue</text>
+<text x="1230" y="218" text-anchor="middle" font-size="13.5">workflows and Airflow DAGs</text>
+<path d="M 1230 236 Q 1214.26 325.22 1259 404" fill="none" stroke="#1a1a1a" stroke-width="1.3"/>
+<path d="M 1259 404 L 1251.42511160009 397.9517716867739 L 1257.6859279264281 394.3961874973811 Z" fill="#1a1a1a"/>
+<text x="1440" y="122" text-anchor="middle" font-size="13.5">Quartz schedules · sensors →</text>
+<text x="1440" y="140" text-anchor="middle" font-size="13.5">file-arrival triggers</text>
+<path d="M 1425 158 Q 1281.68 238.0 1275 402" fill="none" stroke="#1a1a1a" stroke-width="1.3"/>
+<path d="M 1275 402 L 1271.7692642667582 392.8609438877992 L 1278.9632990291705 393.1539692061706 Z" fill="#1a1a1a"/>
+<text x="1680" y="210" text-anchor="middle" font-size="13.5">verification: all tasks</text>
+<text x="1680" y="228" text-anchor="middle" font-size="13.5">must go green</text>
+<path d="M 1672 246 Q 1686.44 330.04 1644 404" fill="none" stroke="#1a1a1a" stroke-width="1.3"/>
+<path d="M 1644 404 L 1645.3568888594855 394.402143331816 L 1651.6017861866508 397.98561335027057 Z" fill="#1a1a1a"/>
+<line x1="348.0" y1="460.0" x2="348.0" y2="634" stroke="#1a1a1a" stroke-width="1.6"/>
+<line x1="362.0" y1="460.0" x2="362.0" y2="634" stroke="#1a1a1a" stroke-width="1.6"/>
+<path d="M 341.0 634 L 355.0 660 L 369.0 634 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/>
+<path d="M 341.0 571 L 369.0 599 L 341.0 599 L 369.0 571 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/>
+<text x="379.0" y="586" text-anchor="start" font-size="13.5">publish_to_snowflake</text>
+<text x="379.0" y="604" text-anchor="start" font-size="13.5">— retired by design</text>
+<g transform="translate(355.0,700) scale(0.9)"><path d="M -30 10 a 14 14 0 0 1 -2 -27 a 16 16 0 0 1 26 -12 a 15 15 0 0 1 27 3 a 13 13 0 0 1 6 24 a 11 11 0 0 1 -12 14 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/></g>
+<line x1="695.5" y1="460.0" x2="695.5" y2="634" stroke="#1a1a1a" stroke-width="1.6"/>
+<line x1="709.5" y1="460.0" x2="709.5" y2="634" stroke="#1a1a1a" stroke-width="1.6"/>
+<path d="M 688.5 634 L 702.5 660 L 716.5 634 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/>
+<path d="M 688.5 571 L 716.5 599 L 688.5 599 L 716.5 571 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/>
+<text x="726.5" y="586" text-anchor="start" font-size="13.5">blockers → review queue</text>
+<text x="726.5" y="604" text-anchor="start" font-size="13.5">(ship gate red until cleared)</text>
+<g transform="translate(702.5,700) scale(0.9)"><path d="M -30 10 a 14 14 0 0 1 -2 -27 a 16 16 0 0 1 26 -12 a 15 15 0 0 1 27 3 a 13 13 0 0 1 6 24 a 11 11 0 0 1 -12 14 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/></g>
+<line x1="1420.5" y1="460.0" x2="1420.5" y2="634" stroke="#1a1a1a" stroke-width="1.6"/>
+<line x1="1434.5" y1="460.0" x2="1434.5" y2="634" stroke="#1a1a1a" stroke-width="1.6"/>
+<path d="M 1413.5 634 L 1427.5 660 L 1441.5 634 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/>
+<path d="M 1413.5 571 L 1441.5 599 L 1413.5 599 L 1441.5 571 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/>
+<text x="1451.5" y="586" text-anchor="start" font-size="13.5">graded fidelity report</text>
+<g transform="translate(1427.5,700) scale(0.9)"><path d="M -30 10 a 14 14 0 0 1 -2 -27 a 16 16 0 0 1 26 -12 a 15 15 0 0 1 27 3 a 13 13 0 0 1 6 24 a 11 11 0 0 1 -12 14 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.6"/></g>
+</svg>

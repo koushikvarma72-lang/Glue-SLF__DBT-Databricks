@@ -228,6 +228,69 @@ def list_snowflake_schemas(config: SnowflakeConnectionConfig) -> dict:
                 pass
 
 
+def list_snowflake_pipeline_objects(config: SnowflakeConnectionConfig) -> dict:
+    """List pipeline-layer objects (Phase 5 of the gap plan): tasks, streams,
+    pipes, procedures, stages. Each SHOW is best-effort (privilege-tolerant) —
+    a denied SHOW yields an empty list + a per-kind error, never a hard failure.
+
+    Returns {success, tasks, streams, pipes, procedures, stages, errors}.
+    """
+    errors = validate_config(config)
+    if errors:
+        return {"success": False, "error": " ".join(errors)}
+    if not config.database:
+        return {"success": False, "error": "Select a Snowflake database first."}
+
+    scope = f"IN DATABASE {_ident(config.database)}"
+    if config.schema:
+        scope = f"IN SCHEMA {_ident(config.database)}.{_ident(config.schema)}"
+
+    def _show(cur, kind, mapper):
+        try:
+            cur.execute(f"SHOW {kind} {scope}")
+            return [mapper(r) for r in _rows(cur)], None
+        except Exception as exc:  # noqa: BLE001 — per-kind, privilege-tolerant
+            return [], str(exc)
+
+    conn = None
+    try:
+        conn = _connect(config)
+        cur = conn.cursor()
+        out, errs = {}, {}
+        out["tasks"], errs["tasks"] = _show(cur, "TASKS", lambda r: {
+            "name": r.get("name"), "schema": r.get("schema_name"),
+            "schedule": r.get("schedule") or "", "state": r.get("state") or "",
+            "predecessors": r.get("predecessors") or "", "definition": r.get("definition") or "",
+            "warehouse": r.get("warehouse") or ""})
+        out["streams"], errs["streams"] = _show(cur, "STREAMS", lambda r: {
+            "name": r.get("name"), "schema": r.get("schema_name"),
+            "table_name": r.get("table_name") or "", "mode": r.get("mode") or "",
+            "stale": r.get("stale") or ""})
+        out["pipes"], errs["pipes"] = _show(cur, "PIPES", lambda r: {
+            "name": r.get("name"), "schema": r.get("schema_name"),
+            "definition": r.get("definition") or "",
+            "notification_channel": r.get("notification_channel") or ""})
+        out["procedures"], errs["procedures"] = _show(cur, "PROCEDURES", lambda r: {
+            "name": r.get("name"), "schema": r.get("schema_name"),
+            "arguments": r.get("arguments") or ""})
+        out["stages"], errs["stages"] = _show(cur, "STAGES", lambda r: {
+            "name": r.get("name"), "schema": r.get("schema_name"),
+            "url": r.get("url") or "", "type": r.get("type") or ""})
+        return {"success": True, **out,
+                "errors": {k: v for k, v in errs.items() if v}}
+    except RuntimeError as exc:
+        return {"success": False, "error": str(exc)}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Snowflake pipeline-object listing failed: %s", exc)
+        return {"success": False, "error": f"Snowflake pipeline listing failed: {exc}"}
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+
 def list_snowflake_objects(config: SnowflakeConnectionConfig) -> dict:
     """List base tables and views (with columns) in the configured database/schema.
 

@@ -181,6 +181,11 @@ export function renderSfGlueConnectPage(container) {
                     ${state.isTestingGlue ? 'Testing…' : '<span aria-hidden="true">🔌</span> Test AWS Glue connection'}
                   </button>
                   ${statusBadge(glueConn)}
+                  ${glueOk ? `
+                  <div style="display:flex;gap:8px;align-items:flex-end;margin-top:10px">
+                    <div style="flex:1">${selectField('glue-bucket', 'Pipeline bucket', state.sfGlueSelectedBucket, state.sfGlueBuckets || [], { hint: 'The S3 bucket the reference pipeline should use (zones + repoint target).', blankLabel: state.sfGlueBuckets ? '\u2014 choose bucket \u2014' : 'loading\u2026' })}</div>
+                    <button class="btn btn-secondary" id="glue-buckets-refresh" title="Reload bucket list" style="margin-bottom:10px;padding:6px 10px">\u21bb</button>
+                  </div>` : ''}
                 </div>
               </div>
 
@@ -213,6 +218,7 @@ export function renderSfGlueConnectPage(container) {
                 ${statusBadge(pgConn)}
               </div>
             </details>` : ''}
+
           </div>
         </div>
 
@@ -340,6 +346,22 @@ export function renderSfGlueConnectPage(container) {
       notify(err.message, { kind: 'error', title: 'Connection failed' });
     }
   });
+
+  // ── Bucket picker + reference-environment tools ────────────────────────────
+  const loadBuckets = async () => {
+    try {
+      const r = await api.listAwsBuckets({ glue: readGlue() });
+      store.set({ sfGlueBuckets: r.buckets || [] });
+    } catch (err) {
+      notify(err.message, { kind: 'error', title: 'Bucket list failed' });
+    }
+  };
+  if ((store.get().sfGlueGlueConnection || {}).success && !store.get().sfGlueBuckets) loadBuckets();
+  container.querySelector('#glue-buckets-refresh')?.addEventListener('click', loadBuckets);
+  container.querySelector('#glue-bucket')?.addEventListener('change', (e) => {
+    store.set({ sfGlueSelectedBucket: e.target.value });
+  });
+
 
   // Persist whatever's typed (so the next step uses current values), then navigate.
   const persistAndGo = (page) => {

@@ -28,3 +28,9 @@ Thumbs.db
 
 # ── Logs ────────────────────────────────────────────────
 *.log
+
+# ── reference_cdl working artifacts (downloaded scratch / binaries) ──
+reference_cdl/*.jar
+reference_cdl/landing_to_raw_patch.py
+reference_cdl/parent_batch_close_peek.py
+reference_cdl/plan.json

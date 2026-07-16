@@ -648,6 +648,172 @@ export const api = {
     return payload;
   },
 
+  // ─── Reference CDL environment tools (Connect page) ────────────────────────
+
+  async listAwsBuckets({ glue } = {}) {
+    const res = await fetch(`${API_BASE}/sfglue/aws/buckets`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ glue }),
+    });
+    const payload = await res.json();
+    if (!res.ok) throw new Error(payload.error || 'Could not list buckets');
+    return payload;
+  },
+
+  async referenceIni({ glue, bucket, key, section, action, target_bucket } = {}) {
+    const res = await fetch(`${API_BASE}/sfglue/reference/ini`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ glue, bucket, key, section, action, target_bucket }),
+    });
+    const payload = await res.json();
+    if (!res.ok) throw new Error(payload.error || 'INI operation failed');
+    return payload;
+  },
+
+  async seedControlSchema({ postgres } = {}) {
+    const res = await fetch(`${API_BASE}/sfglue/reference/seed-control`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ postgres }),
+    });
+    const payload = await res.json();
+    if (!res.ok && !payload.results) throw new Error(payload.error || 'Seed failed');
+    return payload;
+  },
+
+  async configPathReport({ postgres } = {}) {
+    const res = await fetch(`${API_BASE}/sfglue/reference/config-paths`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ postgres }),
+    });
+    const payload = await res.json();
+    if (!res.ok) throw new Error(payload.error || 'Config-path report failed');
+    return payload;
+  },
+
+  async repointConfigPaths({ postgres, old_bucket, new_bucket } = {}) {
+    const res = await fetch(`${API_BASE}/sfglue/reference/repoint-config-paths`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ postgres, old_bucket, new_bucket }),
+    });
+    const payload = await res.json();
+    if (!res.ok) throw new Error(payload.error || 'Config-path repoint failed');
+    return payload;
+  },
+
+  // ─── Orchestration + workspace automation (gap-plan Phases 1/8) ────────────
+
+  // Operational lineage: fused Glue-Workflow chain + RDS control rows + catalog graph.
+  async buildOperationalLineage({ glue, glueDatabases, postgres, snowflake, jobFlags } = {}) {
+    const res = await fetch(`${API_BASE}/sfglue/lineage/operational`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ glue, glue_databases: glueDatabases, postgres, snowflake,
+                             job_flags: jobFlags || {} }),
+    });
+    const payload = await res.json();
+    if (!res.ok) throw new Error(payload.error || 'Operational lineage failed');
+    return payload;
+  },
+
+  // Emit a TARGET Airflow DAG (dag-factory YAML) that orchestrates the migrated
+  // Databricks + dbt pipeline — the mirror of planSfGlueAirflow.
+  async emitTargetAirflow({ artifacts, destination, dagId, schedule, fileArrivalPath,
+                            dbtSource, gitUrl, dbtCloudJobId } = {}) {
+    const res = await fetch(`${API_BASE}/sfglue/airflow/emit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ artifacts, destination, dag_id: dagId, schedule,
+                             file_arrival_path: fileArrivalPath, dbt_source: dbtSource,
+                             git_url: gitUrl, dbt_cloud_job_id: dbtCloudJobId }),
+    });
+    const payload = await res.json();
+    if (!res.ok) throw new Error(payload.error || 'Airflow DAG emit failed');
+    return payload;
+  },
+
+  // Convert Glue Workflows into Databricks Jobs (plan only — nothing deployed).
+  async planSfGlueWorkflows({ glue, destination, artifactMap } = {}) {
+    const res = await fetch(`${API_BASE}/sfglue/workflows/plan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ glue, destination, artifact_map: artifactMap || {} }),
+    });
+    const payload = await res.json();
+    if (!res.ok) { const e = new Error(payload.error || 'Workflow plan failed'); e.status = res.status; throw e; }
+    return payload;
+  },
+
+  // Validate the Databricks destination (token, warehouse, catalog) — no SQL run.
+  async testSfGlueDatabricks(destination) {
+    const res = await fetch(`${API_BASE}/sfglue/databricks/test-connection`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ destination }),
+    });
+    const payload = await res.json();
+    if (!res.ok) throw new Error(payload.error || 'Databricks connection failed');
+    return payload;
+  },
+
+  // Convert Airflow DAGs into Databricks Jobs (plan only) — the Airflow twin of
+  // planSfGlueWorkflows. dagFiles: { 'my_dag.py': '<source>' } (paste from the
+  // Airflow UI's Code tab), or baseUrl+credentials for live REST introspection.
+  async planSfGlueAirflow({ dagFiles, baseUrl, username, password, token, destination, artifactMap } = {}) {
+    const airflow = {};
+    if (dagFiles && Object.keys(dagFiles).length) airflow.dag_files = dagFiles;
+    if (baseUrl) { airflow.base_url = baseUrl; airflow.username = username || ''; airflow.password = password || ''; airflow.token = token || ''; }
+    const res = await fetch(`${API_BASE}/sfglue/airflow/plan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ airflow, destination, artifact_map: artifactMap || {} }),
+    });
+    const payload = await res.json();
+    if (!res.ok) { const e = new Error(payload.error || 'Airflow plan failed'); e.status = res.status; throw e; }
+    return payload;
+  },
+
+  // Create/update the planned Jobs in the workspace (idempotent by tag).
+  async deploySfGlueWorkflows({ destination, jobs } = {}) {
+    const res = await fetch(`${API_BASE}/sfglue/workflows/deploy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ destination, jobs }),
+    });
+    const payload = await res.json();
+    if (!res.ok && !payload.results) throw new Error(payload.error || 'Workflow deploy failed');
+    return payload;
+  },
+
+  // Push the converted notebooks + dbt project into the workspace so Jobs can run.
+  // confFiles: {name: text} — source YAML/config files, landed at <root>/conf/.
+  async pushSfGlueWorkspace({ destination, artifacts, root, confFiles } = {}) {
+    const res = await fetch(`${API_BASE}/sfglue/workspace/push`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ destination, artifacts, root, conf_files: confFiles || {} }),
+    });
+    const payload = await res.json();
+    if (!res.ok && !payload.results) throw new Error(payload.error || 'Workspace push failed');
+    return payload;
+  },
+
+  // Trigger a deployed Job and wait for the verdict (the workflow dry-run gate).
+  async runSfGlueWorkflow({ destination, jobId, timeoutSeconds } = {}) {
+    const res = await fetch(`${API_BASE}/sfglue/workflows/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ destination, job_id: jobId, timeout_seconds: timeoutSeconds }),
+    });
+    const payload = await res.json();
+    if (!res.ok && !payload.state && !payload.run_id) throw new Error(payload.error || 'Workflow run failed');
+    return payload;
+  },
+
   // Push the converted models (+ sources.yml) to a GitHub repo so a dbt Cloud job
   // connected to that repo runs them. Returns {success, pushed[], failed[], repo, branch}.
   async pushModelsToRepo({ github, models, sources_yml }) {

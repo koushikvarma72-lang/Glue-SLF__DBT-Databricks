@@ -16,6 +16,7 @@ works on any Python) so introspection has no native-wheel dependency.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 
@@ -136,6 +137,195 @@ def test_postgres_connection(config: PostgresConnectionConfig) -> dict:
 # lineage/matching treats a column the same regardless of which engine reported it.
 def _pg_type(t: str) -> str:
     return str(t or "").strip().upper() or "TEXT"
+
+
+# ─── config/audit framework introspection (Phase 0.2 of the gap plan) ────────
+#
+# Metadata-driven platforms keep their behavior in RDS control tables
+# (configuration_master, dq_rules, message_template, …). For migration those
+# ROWS are the input — not just the schema — so this section detects the known
+# control tables (by name, falling back to a column fingerprint) and pulls
+# their contents, capped and with secret-looking columns masked.
+
+# canonical table → (name regexes, column-hint set). A table is classified by
+# the FIRST name-pattern match; otherwise by ≥3 column hints (fingerprint).
+_FRAMEWORK_TABLES: dict[str, dict] = {
+    "configuration_master": {
+        "names": [r"^config(uration)?_master$", r"^cdl_config(uration)?(_master)?$"],
+        "columns": {"source_system", "file_pattern", "file_name_pattern", "target_table",
+                    "frequency", "is_active", "active_flag", "landing_path"},
+    },
+    "file_process_log": {
+        "names": [r"^file_process_log$", r"^file_processing_log$"],
+        "columns": {"file_name", "file_status", "batch_id", "record_count",
+                    "processed_date", "process_status", "file_received_date"},
+    },
+    "parent_batch_process": {
+        "names": [r"^parent_batch(_process)?$", r"^batch_process(_master)?$"],
+        "columns": {"batch_id", "batch_status", "batch_start_time", "batch_end_time",
+                    "batch_date", "parent_batch_id"},
+    },
+    "cdl_ingestion_log": {
+        "names": [r"^(cdl_)?ingestion_log$"],
+        "columns": {"table_name", "ingestion_status", "batch_id", "row_count",
+                    "ingestion_start", "ingestion_end", "layer"},
+    },
+    "query_configuration": {
+        "names": [r"^query_config(uration)?$"],
+        "columns": {"query_text", "query_sql", "sql_text", "execution_order",
+                    "step_number", "target_table", "query_type"},
+    },
+    "dq_rules": {
+        "names": [r"^dq_rules?$", r"^data_quality_rules?$"],
+        "columns": {"rule_name", "rule_type", "rule_expression", "column_name",
+                    "table_name", "severity", "threshold", "is_active"},
+    },
+    "message_template": {
+        "names": [r"^message_templates?$", r"^notification_templates?$"],
+        "columns": {"template_name", "template_body", "message_body", "subject",
+                    "recipients", "notification_type"},
+    },
+    "cdl_ds_snowflake_replicate": {
+        "names": [r"^(cdl_|dl_)?(ds_)?snowflake_replicat(e|ion)$"],
+        "columns": {"snowflake_table", "snowflake_schema", "replicate_flag",
+                    "source_table", "sync_status", "last_sync_time"},
+    },
+    # Revealed by the reference CDL's actual Glue job source (raw_to_curated /
+    # curated_to_publish / parent_batch_close read these):
+    "dq_rules_master": {
+        "names": [r"^dq_rules_master$"],
+        "columns": {"rule_name", "sql_query", "is_active"},
+    },
+    "outbound_logs": {
+        "names": [r"^outbound_logs?$"],
+        "columns": {"output_status", "batch_id", "source_system"},
+    },
+    "stitching_configuration": {
+        "names": [r"^stitching_config(uration)?$"],
+        "columns": {"stitching_type", "target_table_name", "source_table_name",
+                    "primary_keys", "record_load_key", "dl_source"},
+    },
+    "outbound_query_configuration": {
+        "names": [r"^outbound_query_config(uration)?$"],
+        "columns": {"target_location_path", "source_system", "sql_query"},
+    },
+}
+
+# Columns whose VALUES must never leave the source DB unmasked.
+_SECRET_COL_RE = re.compile(r"(password|passwd|secret|token|api_?key|credential|private_?key)", re.I)
+
+_MAX_FRAMEWORK_ROWS = 500  # hard cap regardless of the requested row_cap
+
+
+def _norm_table_name(name: str) -> str:
+    """Lowercase, strip quotes/schema, collapse non-alphanumerics to '_'."""
+    base = str(name or "").strip().strip('"').split(".")[-1]
+    return re.sub(r"[^a-z0-9]+", "_", base.lower()).strip("_")
+
+
+def classify_framework_table(name: str, columns: list[str]) -> dict | None:
+    """Classify a table as one of the known control tables.
+
+    Returns {canonical, matched_by: 'name'|'columns'} or None. Pure — unit-testable.
+    """
+    norm = _norm_table_name(name)
+    cols = {_norm_table_name(c) for c in columns or []}
+    for canonical, spec in _FRAMEWORK_TABLES.items():
+        if any(re.match(pat, norm) for pat in spec["names"]):
+            return {"canonical": canonical, "matched_by": "name"}
+    best, best_hits = None, 0
+    for canonical, spec in _FRAMEWORK_TABLES.items():
+        hits = len(cols & spec["columns"])
+        if hits >= 3 and hits > best_hits:
+            best, best_hits = canonical, hits
+    if best:
+        return {"canonical": best, "matched_by": "columns"}
+    return None
+
+
+def mask_row(columns: list[str], row: list) -> list:
+    """Replace values of secret-looking columns with '***'. Pure."""
+    return ["***" if _SECRET_COL_RE.search(str(col or "")) and val not in (None, "")
+            else val for col, val in zip(columns, row)]
+
+
+def _quote_ident(name: str) -> str:
+    return '"' + str(name or "").replace('"', '""') + '"'
+
+
+def introspect_framework_tables(config: PostgresConnectionConfig,
+                                extra_tables: list[str] | None = None,
+                                row_cap: int = 200) -> dict:
+    """Find the control-framework tables and pull their rows (capped, masked).
+
+    ``extra_tables`` lets the user force-include tables the heuristics missed
+    (review-UI "mark as control table"). Returns {success, framework_tables:
+    [{name, schema, canonical, matched_by, columns, rows, row_count, truncated}]}.
+    """
+    errors = validate_config(config)
+    if errors:
+        return {"success": False, "error": " ".join(errors)}
+    row_cap = max(1, min(int(row_cap or 200), _MAX_FRAMEWORK_ROWS))
+    forced = {_norm_table_name(t) for t in extra_tables or []}
+
+    listing = list_postgres_objects(config)
+    if not listing.get("success"):
+        return listing
+    candidates = []
+    for obj in listing.get("tables", []):
+        if obj.get("kind") != "table":
+            continue
+        col_names = [c["name"] for c in obj.get("columns", [])]
+        cls = classify_framework_table(obj["name"], col_names)
+        if cls is None and _norm_table_name(obj["name"]) in forced:
+            cls = {"canonical": _norm_table_name(obj["name"]), "matched_by": "forced"}
+        if cls:
+            candidates.append((obj, col_names, cls))
+
+    conn = None
+    out = []
+    try:
+        conn = _connect(config)
+        cur = conn.cursor()
+        for obj, col_names, cls in candidates:
+            fq = f'{_quote_ident(obj["schema"])}.{_quote_ident(obj["name"])}'
+            entry = {"name": obj["name"], "schema": obj["schema"],
+                     "canonical": cls["canonical"], "matched_by": cls["matched_by"],
+                     "columns": obj.get("columns", []), "rows": [], "row_count": 0,
+                     "truncated": False}
+            try:
+                cur.execute(f"SELECT COUNT(*) FROM {fq}")
+                total = int((cur.fetchone() or [0])[0])
+                cur.execute(f"SELECT * FROM {fq} LIMIT {row_cap}")
+                fetched_cols = [d[0] for d in cur.description or []] or col_names
+                rows = [mask_row(fetched_cols, [_jsonable(v) for v in r]) for r in cur.fetchall()]
+                entry.update({"rows": rows, "row_count": total,
+                              "columns": [{"name": c} for c in fetched_cols]
+                              if fetched_cols != col_names else entry["columns"],
+                              "truncated": total > len(rows)})
+            except Exception as exc:  # noqa: BLE001 — per-table, don't sink the batch
+                entry["error"] = str(exc)
+            out.append(entry)
+        return {"success": True, "framework_tables": out,
+                "detected": len([e for e in out if "error" not in e])}
+    except RuntimeError as exc:
+        return {"success": False, "error": str(exc)}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Postgres framework introspection failed: %s", exc)
+        return {"success": False, "error": f"Framework introspection failed: {exc}"}
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def _jsonable(v):
+    """Coerce driver values (datetime/Decimal/bytes/…) to JSON-safe primitives."""
+    if v is None or isinstance(v, (str, int, float, bool)):
+        return v
+    return str(v)
 
 
 def list_postgres_objects(config: PostgresConnectionConfig) -> dict:

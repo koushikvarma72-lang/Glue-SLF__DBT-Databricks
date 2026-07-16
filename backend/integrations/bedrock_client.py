@@ -6,6 +6,18 @@ from backend.integrations.ai_client import AIClientError, _truncate_prompt
 
 logger = logging.getLogger(__name__)
 
+# A long artifact (a big PySpark notebook, a many-CTE model) can exceed maxTokens;
+# Converse then stops with stopReason='max_tokens' and — without handling — the
+# artifact is silently truncated mid-line and shipped. When that happens we CONTINUE
+# the generation (append the partial as an assistant turn + a continue instruction)
+# and stitch the pieces, up to this many extra rounds.
+_MAX_CONTINUATION_ROUNDS = 3
+_CONTINUE_PROMPT = (
+    "Your previous message was cut off by the output-length limit. Continue EXACTLY "
+    "where you left off — output only the remainder. Do not repeat anything already "
+    "produced, do not add commentary, do not open a new code fence."
+)
+
 
 def _bedrock_session(profile_name=None, region_name=None,
                      aws_access_key_id=None, aws_secret_access_key=None, aws_session_token=None):
@@ -192,7 +204,30 @@ def call_bedrock_chat(
             stream_response = _converse_with_sampling_fallback(client, request, stream=True)
             return _iter_converse_stream(stream_response, model)
 
-        response = _converse_with_sampling_fallback(client, request)
+        # Continuation loop: never return a silently maxTokens-truncated artifact.
+        parts = []
+        usage_totals = {"inputTokens": 0, "outputTokens": 0}
+        stop_reason = None
+        for round_no in range(_MAX_CONTINUATION_ROUNDS + 1):
+            response = _converse_with_sampling_fallback(client, request)
+            content = ((response.get("output") or {}).get("message") or {}).get("content") or []
+            piece = "".join(b.get("text", "") for b in content if isinstance(b, dict))
+            usage = response.get("usage") or {}
+            for k in usage_totals:
+                usage_totals[k] += int(usage.get(k) or 0)
+            stop_reason = response.get("stopReason")
+            if piece:
+                parts.append(piece)
+            if stop_reason != "max_tokens" or not piece or round_no == _MAX_CONTINUATION_ROUNDS:
+                break
+            logger.warning(
+                "Amazon Bedrock hit maxTokens model=%s (continuation %d/%d) — resuming generation",
+                model, round_no + 1, _MAX_CONTINUATION_ROUNDS)
+            request = dict(request)
+            request["messages"] = list(request["messages"]) + [
+                {"role": "assistant", "content": [{"text": piece}]},
+                {"role": "user", "content": [{"text": _CONTINUE_PROMPT}]},
+            ]
     except ProfileNotFound as exc:
         raise AIClientError(
             f"AWS profile {profile_name!r} was not found. Run `aws configure sso --profile {profile_name}` first."
@@ -212,17 +247,25 @@ def call_bedrock_chat(
         logger.warning("Amazon Bedrock request failed model=%s: %s", model, exc)
         raise AIClientError(f"Amazon Bedrock request failed: {exc}") from exc
 
-    content = ((response.get("output") or {}).get("message") or {}).get("content") or []
-    text = "".join(block.get("text", "") for block in content if isinstance(block, dict))
+    text = "".join(parts)
     if not text:
         raise AIClientError(f"Unexpected Amazon Bedrock response shape: {str(response)[:500]}")
+    if stop_reason == "max_tokens":
+        # Exhausted the continuation budget and STILL truncated — never ship that silently.
+        logger.warning("Amazon Bedrock output still truncated after %d continuation round(s) "
+                       "model=%s", _MAX_CONTINUATION_ROUNDS, model)
+        raise AIClientError(
+            f"Output exceeded the model limit even after {_MAX_CONTINUATION_ROUNDS} "
+            "continuation rounds — the artifact would be truncated. Split the input "
+            "(fewer tables per call) or raise max_tokens.")
 
-    usage = response.get("usage") or {}
     logger.info(
-        "Amazon Bedrock response OK model=%s input_tokens=%s output_tokens=%s stop_reason=%s",
+        "Amazon Bedrock response OK model=%s input_tokens=%s output_tokens=%s stop_reason=%s "
+        "continuations=%d",
         model,
-        usage.get("inputTokens"),
-        usage.get("outputTokens"),
-        response.get("stopReason"),
+        usage_totals.get("inputTokens"),
+        usage_totals.get("outputTokens"),
+        stop_reason,
+        max(0, len(parts) - 1),
     )
     return text

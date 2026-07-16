@@ -195,10 +195,15 @@ def _dbt_project_name(project_name: str | None) -> str:
 
 
 def generate_dbt_project_yml(destination: dict, project_name: str | None = None) -> str:
-    """A dbt_project.yml for the converted models. Source-agnostic: the only project-level
-    identifier is the profile name; catalog/schema live in profiles.yml, and each model
-    carries its own ``{{ config(materialized=...) }}``. No source/domain names are baked in."""
+    """A dbt_project.yml for the converted models, organized in the standard dbt layer
+    layout — staging / intermediate / marts. Every layer materializes as TABLES (the
+    intermediate tables are first-class deliverables, not throwaway views): staging +
+    intermediate land in the silver schema, marts in gold. Per-model config() can still
+    override, but the project default is the persisted-tables contract."""
     name = _dbt_project_name(project_name)
+    d = destination or {}
+    silver = d.get("silver_schema") or "silver"
+    gold = d.get("gold_schema") or "gold"
     return (
         f"name: '{name}'\n"
         "version: '1.0.0'\n"
@@ -210,8 +215,48 @@ def generate_dbt_project_yml(destination: dict, project_name: str | None = None)
         'macro-paths: ["macros"]\n\n'
         "models:\n"
         f"  {name}:\n"
-        "    +materialized: view\n"  # per-model config() overrides this where needed
+        "    +materialized: table\n"
+        "    staging:\n"
+        "      +materialized: table\n"
+        f"      +schema: {silver}\n"
+        "    intermediate:\n"
+        "      +materialized: table\n"
+        f"      +schema: {silver}\n"
+        "    marts:\n"
+        "      +materialized: table\n"
+        f"      +schema: {gold}\n"
     )
+
+
+# generate_schema_name override: dbt's default CONCATENATES target schema with the custom
+# schema ("silver" + "gold" → "silver_gold"). We want the custom schema verbatim so the
+# layer configs above land exactly in <catalog>.silver / <catalog>.gold.
+_GENERATE_SCHEMA_NAME_MACRO = (
+    "{% macro generate_schema_name(custom_schema_name, node) -%}\n"
+    "    {%- if custom_schema_name is none -%}\n"
+    "        {{ target.schema }}\n"
+    "    {%- else -%}\n"
+    "        {{ custom_schema_name | trim }}\n"
+    "    {%- endif -%}\n"
+    "{%- endmacro %}\n"
+)
+
+_MART_PREFIXES = ("dim_", "fct_", "fact_", "mart_", "pub_", "agg_")
+
+
+def dbt_layer_for_model(fname: str, sql: str = "") -> str:
+    """staging | intermediate | marts — by naming convention, falling back to the
+    schema the model's own config() targets (gold ⇒ marts)."""
+    base = str(fname or "").lower()
+    if base.startswith("stg_"):
+        return "staging"
+    if base.startswith("int_"):
+        return "intermediate"
+    if base.startswith(_MART_PREFIXES):
+        return "marts"
+    if re.search(r"schema\s*=\s*['\"]gold['\"]", sql or ""):
+        return "marts"
+    return "staging"
 
 
 def generate_profiles_yml(destination: dict, project_name: str | None = None) -> str:
@@ -259,12 +304,20 @@ def build_dbt_project_files(conversion: dict, destination: dict,
         files["models/schema.yml"] = c["schema_yml"]
     if c.get("unit_tests_yml"):
         files["models/unit_tests.yml"] = c["unit_tests_yml"]
+    files["macros/generate_schema_name.sql"] = _GENERATE_SCHEMA_NAME_MACRO
     for fname, sql in (c.get("dbt_models") or {}).items():
-        files[f"models/{fname}"] = sql
+        layer = dbt_layer_for_model(fname, sql if isinstance(sql, str) else "")
+        # Persisted-tables contract: middle tables are deliverables, so a per-model
+        # materialized='view' from generation is upgraded to 'table' here.
+        text = sql if isinstance(sql, str) else str(sql)
+        text = re.sub(r"materialized\s*=\s*['\"]view['\"]", "materialized='table'", text)
+        files[f"models/{layer}/{fname}"] = text
     for tname, sql in (c.get("ddl") or {}).items():
         files[f"ddl/{tname}.sql"] = sql
     for nbname, code in (c.get("notebooks") or {}).items():
         files[f"notebooks/{nbname}"] = code
+    for cfname, text in (c.get("conf_files") or {}).items():
+        files[f"conf/{cfname}"] = text if isinstance(text, str) else str(text)
     if c.get("governance_md"):
         files["GOVERNANCE.md"] = c["governance_md"]
     files["README.md"] = (
@@ -2315,10 +2368,15 @@ def run_conversion(call_ai, lineage, selected_ids, *, jobs_io, glue_scripts,
     source_catalog = (destination or {}).get("source_catalog") or catalog
     source_schema = (destination or {}).get("source_schema") or bronze_schema
     bronze_tables = plan.get("bronze_tables") or None
-    for name in plan["ingestion_jobs"]:
-        notebooks[f"{name}.py"] = convert_ingestion_job(
-            call_ai, name, glue_scripts.get(name, ""),
-            target_catalog=source_catalog, target_schema=source_schema, bronze_tables=bronze_tables)
+    # Each job's conversion is one independent 60-90s AI call — run them concurrently
+    # (bounded by _AI_WORKERS) instead of queueing them back to back.
+    for name, code in _map_concurrent(
+            plan["ingestion_jobs"],
+            lambda name: (name, convert_ingestion_job(
+                call_ai, name, glue_scripts.get(name, ""),
+                target_catalog=source_catalog, target_schema=source_schema,
+                bronze_tables=bronze_tables))):
+        notebooks[f"{name}.py"] = code
 
     # Transformation jobs → dbt models. Each job is DECOMPOSED into one model per output
     # table (dbt is one-model-per-table). The output list comes from the catalog (the
@@ -2334,8 +2392,9 @@ def run_conversion(call_ai, lineage, selected_ids, *, jobs_io, glue_scripts,
                    for name in plan["transformation_jobs"]}
     all_refs = sorted({t for outs in job_outputs.values() for t in outs})
     bronze_sources = plan["bronze_tables"]
-    pyspark_transform_jobs = []
-    for name in plan["transformation_jobs"]:
+    def _convert_one_transform(name):
+        """Convert one transformation job — pure w.r.t. shared state so the jobs can
+        run concurrently. Returns a result dict merged (in input order) below."""
         outs = job_outputs[name]
         io = jobs_io.get(name, {}) or {}
         script = glue_scripts.get(name, "")
@@ -2345,11 +2404,11 @@ def run_conversion(call_ai, lineage, selected_ids, *, jobs_io, glue_scripts,
         # ALL the logic is preserved. Only genuinely relational transforms become dbt SQL.
         if transform_needs_pyspark(script):
             tgt_schema = gold_schema if "gold" in write_layers else silver_schema
-            notebooks[f"{name}__transform.py"] = convert_transformation_job_to_pyspark(
+            code = convert_transformation_job_to_pyspark(
                 call_ai, name, script, target_catalog=catalog, target_schema=tgt_schema,
                 output_tables=outs, available_refs=all_refs, bronze_sources=bronze_sources)
-            pyspark_transform_jobs.append(name)
-            notes[f"{name}__transform.md"] = (
+            logger.info("sfglue: job=%s routed to PySpark transform (non-relational logic)", name)
+            note = (
                 f"# {name} — ported to PySpark (not dbt SQL)\n\n"
                 "This transformation job uses constructs dbt SQL cannot express "
                 "(e.g. Excel/zip reads, config-driven loops, UDFs, or dynamic dispatch), "
@@ -2357,8 +2416,7 @@ def run_conversion(call_ai, lineage, selected_ids, *, jobs_io, glue_scripts,
                 f"See `{name}__transform.py` in the notebooks tab. It can be run standalone "
                 "or wrapped as a dbt python model.\n"
             )
-            logger.info("sfglue: job=%s routed to PySpark transform (non-relational logic)", name)
-            continue
+            return {"name": name, "kind": "pyspark", "notebook": code, "note": note}
         # Bronze column grounding applies ONLY to jobs that read bronze (bronze→silver
         # builds). A job that writes the GOLD layer reads silver ref() outputs, not bronze.
         job_bronze_cols = {} if "gold" in write_layers else bronze_columns
@@ -2367,10 +2425,20 @@ def run_conversion(call_ai, lineage, selected_ids, *, jobs_io, glue_scripts,
             available_refs=all_refs, bronze_sources=bronze_sources, bronze_columns=job_bronze_cols)
         logger.info(
             "sfglue decompose: job=%s writes=%s reads=%s catalog_outputs=%d -> %d model(s): %s",
-            name, (jobs_io.get(name, {}) or {}).get("writes"),
-            (jobs_io.get(name, {}) or {}).get("reads"), len(outs), len(models), sorted(models)[:6],
+            name, io.get("writes"), io.get("reads"), len(outs), len(models), sorted(models)[:6],
         )
-        dbt_models.update(models)
+        return {"name": name, "kind": "dbt", "models": models}
+
+    # Jobs are independent of each other (the shared ref vocabulary was precomputed
+    # above), so convert them concurrently; merge preserves input order → deterministic.
+    pyspark_transform_jobs = []
+    for res in _map_concurrent(plan["transformation_jobs"], _convert_one_transform):
+        if res["kind"] == "pyspark":
+            notebooks[f"{res['name']}__transform.py"] = res["notebook"]
+            notes[f"{res['name']}__transform.md"] = res["note"]
+            pyspark_transform_jobs.append(res["name"])
+        else:
+            dbt_models.update(res["models"])
     plan["pyspark_transform_jobs"] = pyspark_transform_jobs
 
     # Config-driven pipeline: detect the control/metadata layer and emit the
@@ -2397,19 +2465,30 @@ def run_conversion(call_ai, lineage, selected_ids, *, jobs_io, glue_scripts,
     # but NO bronze-passthrough staging model — there is no 1:1 bronze source to read,
     # so emitting `select * from source('bronze', 'dim_account')` would dangle.
     bronze_set = set(plan["bronze_tables"])
+    # Views are one AI call each — batch them for concurrent conversion; tables (pure
+    # deterministic DDL) are handled inline below.
+    view_items = [(node, layer) for node, layer in _migratable_nodes(scoped)
+                  if str(node["id"]).startswith("sf:") and node.get("type") == "gold"]
+    for (node, layer), sql in zip(view_items, _map_concurrent(
+            view_items,
+            lambda nl: convert_view_to_dbt(
+                call_ai, nl[0]["label"], snowflake_ddl.get(nl[0]["label"], ""),
+                materialized="table" if nl[1] == "gold" else "view",
+                columns=snowflake_columns.get(nl[0]["label"]), bronze_columns=bronze_columns))):
+        full = node["label"]
+        base = _base_name(full)
+        dbt_models[f"{base}.sql"] = sql
+        # A view's output columns are the Snowflake view's typed columns → enforce a contract.
+        cc = _contract_cols(full)
+        if cc:
+            columns_by_model[base.lower()] = cc
     for node, layer in _migratable_nodes(scoped):
         if not str(node["id"]).startswith("sf:"):
             continue
         full = node["label"]
         base = _base_name(full)
-        if node.get("type") == "gold":  # Snowflake view → dbt model
-            dbt_models[f"{base}.sql"] = convert_view_to_dbt(
-                call_ai, full, snowflake_ddl.get(full, ""), materialized="table" if layer == "gold" else "view",
-                columns=snowflake_columns.get(full), bronze_columns=bronze_columns)
-            # A view's output columns are the Snowflake view's typed columns → enforce a contract.
-            cc = _contract_cols(full)
-            if cc:
-                columns_by_model[base.lower()] = cc
+        if node.get("type") == "gold":
+            continue  # views handled (concurrently) above
         else:  # Snowflake table → Databricks DDL (with carried-forward FKs)
             ddl[base] = generate_databricks_ddl(
                 target_table_name(full, layer, destination), snowflake_columns.get(full, []),

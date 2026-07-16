@@ -388,9 +388,30 @@ export const store = {
         localStorage.setItem('qvf_dbt_cloud_config', JSON.stringify(state.dbtCloudConfig || {}));
       } catch (_) { /* storage unavailable — non-fatal */ }
     }
-    // NOTE: the Snowflake + Glue source connection configs (Snowflake password, AWS
-    // secret/session keys) are intentionally NOT persisted — they live in memory for
-    // the session only and are cleared on restart, so credentials never touch storage.
+    // Source connection configs are persisted at the user's request (local demo
+    // machine) so a restart doesn't require retyping. NOTE: this stores secrets
+    // (Snowflake password, AWS keys, Postgres password) in browser localStorage —
+    // acceptable for a local demo, not for shared machines.
+    if (updates.sfGlueSnowflakeConfig !== undefined) {
+      try {
+        localStorage.setItem('qvf_sfglue_snowflake_config', JSON.stringify(state.sfGlueSnowflakeConfig || {}));
+      } catch (_) { /* storage unavailable — non-fatal */ }
+    }
+    if (updates.sfGlueGlueConfig !== undefined) {
+      try {
+        localStorage.setItem('qvf_sfglue_glue_config', JSON.stringify(state.sfGlueGlueConfig || {}));
+      } catch (_) { /* storage unavailable — non-fatal */ }
+    }
+    if (updates.sfGluePostgresConfig !== undefined) {
+      try {
+        localStorage.setItem('qvf_sfglue_postgres_config', JSON.stringify(state.sfGluePostgresConfig || {}));
+      } catch (_) { /* storage unavailable — non-fatal */ }
+    }
+    if (updates.sfGlueSelectedBucket !== undefined) {
+      try {
+        localStorage.setItem('qvf_sfglue_bucket', state.sfGlueSelectedBucket || '');
+      } catch (_) { /* storage unavailable — non-fatal */ }
+    }
     if (updates.sfGlueDestination !== undefined) {
       try {
         localStorage.setItem('qvf_sfglue_destination', JSON.stringify(state.sfGlueDestination || {}));
@@ -833,6 +854,10 @@ export const store = {
     localStorage.removeItem('qvf_dialect');
     localStorage.removeItem('qvf_qlik_connection');
     localStorage.removeItem('qvf_sfglue_destination');
+    localStorage.removeItem('qvf_sfglue_snowflake_config');
+    localStorage.removeItem('qvf_sfglue_glue_config');
+    localStorage.removeItem('qvf_sfglue_postgres_config');
+    localStorage.removeItem('qvf_sfglue_bucket');
     localStorage.removeItem('qvf_tabpbi_destination');
     this._notify();
   },
@@ -893,12 +918,19 @@ try {
   }
 } catch (_) { /* ignore malformed/unavailable storage */ }
 
-// Source connection configs (Snowflake/Glue) are NOT restored — they're session-only.
-// Purge any previously-stored credentials from older builds so secrets don't linger
-// in localStorage across a restart.
+// Restore the persisted source connection configs (user-requested convenience on a
+// local demo machine — includes secrets; see the matching note in set()).
 try {
-  localStorage.removeItem('qvf_sfglue_snowflake_config');
-  localStorage.removeItem('qvf_sfglue_glue_config');
+  for (const [key, stateKey] of [
+    ['qvf_sfglue_snowflake_config', 'sfGlueSnowflakeConfig'],
+    ['qvf_sfglue_glue_config', 'sfGlueGlueConfig'],
+    ['qvf_sfglue_postgres_config', 'sfGluePostgresConfig'],
+  ]) {
+    const stored = localStorage.getItem(key);
+    if (stored) state[stateKey] = { ...state[stateKey], ...JSON.parse(stored) };
+  }
+  const _storedBucket = localStorage.getItem('qvf_sfglue_bucket');
+  if (_storedBucket) state.sfGlueSelectedBucket = _storedBucket;
   const _storedDest = localStorage.getItem('qvf_sfglue_destination');
   if (_storedDest) {
     state.sfGlueDestination = { ...state.sfGlueDestination, ...JSON.parse(_storedDest) };

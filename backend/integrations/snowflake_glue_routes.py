@@ -24,7 +24,10 @@ from backend.integrations.glue_client import (
     GlueConnectionConfig,
     fetch_glue_job_scripts,
     list_glue_catalog,
+    list_glue_crawlers,
     list_glue_jobs,
+    list_glue_triggers,
+    list_glue_workflows,
     test_glue_connection,
 )
 from backend.integrations.snowflake_client import (
@@ -32,10 +35,40 @@ from backend.integrations.snowflake_client import (
     fetch_object_ddl,
     fetch_table_columns,
     list_snowflake_objects,
+    list_snowflake_pipeline_objects,
     list_snowflake_relationships,
     list_snowflake_schemas,
     open_query_runner,
     test_snowflake_connection,
+)
+from backend.integrations.bundle_export import (
+    SCHEMA_VERSION,
+    build_artifact_registry,
+    build_bundle_files,
+)
+from backend.integrations.consumption_inventory import (
+    ACCESS_HISTORY_SQL,
+    generate_outbound_cutover_md,
+    snowflake_pipeline_notes,
+)
+from backend.integrations.control_plane_migration import (
+    convert_query_configuration_rows,
+    generate_control_schema_ddl,
+    generate_framework_notebooks,
+)
+from backend.integrations.dq_migration import (
+    compile_dq_rules,
+    compile_notifications,
+)
+from backend.integrations.governance_migration import (
+    list_lakeformation_permissions,
+    map_permissions_to_uc_grants,
+)
+from backend.integrations.orchestration_migration import (
+    build_databricks_job,
+    deploy_job,
+    job_to_dab_yaml,
+    parse_workflow_dag,
 )
 from backend.integrations.sfglue_sql_guard import (
     UnsafeSqlError,
@@ -58,9 +91,11 @@ from backend.integrations.snowflake_glue_migration import (
     generate_postgres_bronze_ingestion,
     grade_migration_fidelity,
     run_conversion,
+    _map_concurrent,
 )
 from backend.integrations.postgres_client import (
     PostgresConnectionConfig,
+    introspect_framework_tables,
     list_postgres_objects,
     test_postgres_connection,
 )
@@ -282,6 +317,45 @@ def register_snowflake_glue_routes(app, call_ai=None):
         result = test_glue_connection(config)
         return jsonify(result), (200 if result.get('success') else 400)
 
+    @app.route('/api/sfglue/databricks/test-connection', methods=['POST'])
+    def sfglue_databricks_test():
+        """Validate the Databricks destination: token (SCIM me), SQL warehouse
+        (exists + state), and catalog (Unity Catalog lookup). Pure REST, no SQL run."""
+        import requests as _rq
+        data = request.get_json(silent=True) or {}
+        d = data.get('destination') or data
+        host = str(d.get('workspace_url') or '').rstrip('/')
+        token = d.get('token') or ''
+        wh = d.get('sql_warehouse_id') or ''
+        catalog = d.get('catalog') or ''
+        if not host or not token:
+            return jsonify({'success': False, 'error': 'workspace_url and token are required'}), 400
+        hdrs = {'Authorization': f'Bearer {token}'}
+        out = {'success': True, 'checks': {}}
+        try:
+            r = _rq.get(f'{host}/api/2.0/preview/scim/v2/Me', headers=hdrs, timeout=20)
+            if r.status_code == 200:
+                out['checks']['auth'] = {'ok': True, 'user': (r.json() or {}).get('userName', '')}
+            else:
+                return jsonify({'success': False, 'error': f'token rejected (HTTP {r.status_code})'}), 400
+            if wh:
+                r = _rq.get(f'{host}/api/2.0/sql/warehouses/{wh}', headers=hdrs, timeout=20)
+                ok = r.status_code == 200
+                out['checks']['warehouse'] = {'ok': ok,
+                    'state': (r.json() or {}).get('state', '') if ok else f'HTTP {r.status_code}'}
+                if not ok:
+                    out['success'] = False
+            if catalog:
+                r = _rq.get(f'{host}/api/2.1/unity-catalog/catalogs/{catalog}', headers=hdrs, timeout=20)
+                ok = r.status_code == 200
+                out['checks']['catalog'] = {'ok': ok, 'name': catalog}
+                if not ok:
+                    out['success'] = False
+                    out['error'] = f"catalog '{catalog}' not found"
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({'success': False, 'error': f'Databricks unreachable: {exc}'}), 400
+        return jsonify(out), (200 if out['success'] else 400)
+
     @app.route('/api/sfglue/postgres/test-connection', methods=['POST'])
     def sfglue_postgres_test():
         data = request.get_json(silent=True) or {}
@@ -314,6 +388,478 @@ def register_snowflake_glue_routes(app, call_ai=None):
             except Exception as exc:  # noqa: BLE001 — cross-check is advisory
                 logger.info("postgres introspect: snowflake cross-check skipped: %s", exc)
         return jsonify({"success": True, "tables": pg_tables, "shipped_to_snowflake": shipped, "errors": {}})
+
+    @app.route('/api/sfglue/postgres/framework', methods=['POST'])
+    def sfglue_postgres_framework():
+        """Detect + pull the RDS control-framework tables (configuration_master,
+        dq_rules, message_template, …) whose ROWS drive the metadata-driven pipeline.
+        Phase 0.2 of the gap plan — input for the control-plane/DQ/alerting migration.
+
+        Body: {postgres, tables?: [names to force-include], row_cap?}. Returns
+        {success, framework_tables: [{name, schema, canonical, matched_by, columns,
+        rows, row_count, truncated}], detected}.
+        """
+        data = request.get_json(silent=True) or {}
+        pg_config = PostgresConnectionConfig.from_payload(data.get('postgres') or data)
+        result = introspect_framework_tables(
+            pg_config,
+            extra_tables=data.get('tables') or [],
+            row_cap=data.get('row_cap') or 200,
+        )
+        return jsonify(result), (200 if result.get('success') else 400)
+
+    @app.route('/api/dbt-local/run-sfglue', methods=['POST'])
+    def sfglue_dbt_local_run():
+        """Run the converted models with real dbt-Core against the Databricks warehouse.
+
+        Body: {sessionId?, models: {fname: sql}, sources_yml?, destination}. → {jobId}.
+        (These /api/dbt-local routes lived in the combined BI tool and were not split
+        out with the app — the DBT Agent page depends on them.)
+        """
+        from backend.integrations.dbt_local import start_dbt_run
+        data = request.get_json(silent=True) or {}
+        result = start_dbt_run(data.get('models') or {}, data.get('sources_yml') or '',
+                               data.get('destination') or {},
+                               session_id=str(data.get('sessionId') or 'sfglue'))
+        return jsonify(result), (200 if result.get('success') else 400)
+
+    @app.route('/api/dbt-local/status/<job_id>', methods=['GET'])
+    def sfglue_dbt_local_status(job_id):
+        from backend.integrations.dbt_local import get_status
+        try:
+            since = int(request.args.get('since') or 0)
+        except ValueError:
+            since = 0
+        result = get_status(job_id, since)
+        return jsonify(result), (200 if result.get('success') else 404)
+
+    @app.route('/api/dbt-local/cancel/<job_id>', methods=['POST'])
+    def sfglue_dbt_local_cancel(job_id):
+        from backend.integrations.dbt_local import cancel
+        result = cancel(job_id)
+        return jsonify(result), (200 if result.get('success') else 404)
+
+    @app.route('/api/sfglue/airflow/plan', methods=['POST'])
+    def sfglue_airflow_plan():
+        """Airflow DAGs → Databricks Jobs (plan only) — the Airflow twin of
+        /workflows/plan, feeding the same converter/serializers/deploy path.
+
+        Body: {airflow: {base_url?, username?, password?, token?,
+                         dag_files?: {name: python_or_yaml_source}},
+               destination?, artifact_map?, notifications?}.
+        dag_files entries are auto-detected: Python DAG modules go through the AST
+        parser, dag-factory YAML definitions through the YAML parser (one YAML file
+        may define several DAGs). GlueJobOperator tasks carry the Glue job_name as
+        legacy_name, so the same artifact_map used for Glue workflows applies unchanged.
+        """
+        from backend.integrations.airflow_migration import (
+            fetch_airflow_dags, looks_like_yaml_dag, parse_dag_factory_yaml, parse_dag_source)
+        data = request.get_json(silent=True) or {}
+        af = data.get('airflow') or {}
+        dags = []
+        if af.get('dag_files'):
+            for fname, src in af['dag_files'].items():
+                text = str(src or '')
+                if looks_like_yaml_dag(str(fname), text):
+                    dags.extend(parse_dag_factory_yaml(str(fname), text))
+                else:
+                    dags.append(parse_dag_source(str(fname), text))
+        elif af.get('base_url'):
+            fetched = fetch_airflow_dags(af['base_url'], af.get('username') or '',
+                                         af.get('password') or '', af.get('token') or '')
+            if not fetched.get('success'):
+                return jsonify(fetched), 400
+            dags = fetched['dags']
+        else:
+            return jsonify({"success": False,
+                            "error": "Provide airflow.dag_files (paste DAG source) "
+                                     "or airflow.base_url (+credentials)."}), 400
+        destination = data.get('destination') or {}
+        amap = data.get('artifact_map') or {}
+        notif = (data.get('notifications') or {}).get('email_notifications') or {}
+        jobs_out = []
+        for dag in dags:
+            built = build_databricks_job(dag, artifact_map=amap, destination=destination,
+                                         email_notifications=notif or None,
+                                         file_arrival_url=data.get('file_arrival_url'))
+            jobs_out.append({
+                "name": dag['name'], "dag": dag, "job": built['job'],
+                "yaml": job_to_dab_yaml(built['job'], dag['name']),
+                "placeholders": built['placeholders'], "warnings": built['warnings'],
+            })
+        if not jobs_out:
+            return jsonify({"success": False, "error": "No DAGs found/parsed."}), 404
+        return jsonify({"success": True, "jobs": jobs_out, "source": "airflow"})
+
+    @app.route('/api/sfglue/lineage/operational', methods=['POST'])
+    def sfglue_lineage_operational():
+        """Operational lineage: fuse the Glue Workflow chain + RDS control rows + catalog
+        into one laned graph (jobs, control tables, data tables; execution/control/data
+        edges) with per-job logic drilldown and generic source-health checks. Everything
+        is derived from introspection — nothing about any one pipeline is hardcoded.
+
+        Body: {glue?, glue_databases?, postgres?, snowflake?, job_flags?}.
+        """
+        from backend.integrations.operational_lineage import build_operational_lineage
+        data = request.get_json(silent=True) or {}
+        if not (data.get('glue') or data.get('postgres')):
+            return jsonify({"success": False,
+                            "error": "Connect AWS Glue and/or the Postgres control DB first."}), 400
+        errors = {}
+        workflow_dag, glue_tables, glue_jobs = {}, [], []
+        if data.get('glue'):
+            gc = GlueConnectionConfig.from_payload(data['glue'])
+            cat = list_glue_catalog(gc, databases=data.get('glue_databases'))
+            if cat.get('success'):
+                glue_tables = cat['tables']
+            else:
+                errors['glue_catalog'] = cat.get('error')
+            jl = list_glue_jobs(gc)
+            glue_jobs = jl.get('jobs', []) if jl.get('success') else []
+            wf = list_glue_workflows(gc)
+            trg = list_glue_triggers(gc)
+            triggers = trg.get('triggers', []) if trg.get('success') else []
+            wflows = wf.get('workflows', []) if wf.get('success') else []
+            if wflows:
+                # fuse all workflows' tasks into one chain view (usually one workflow)
+                merged = {"name": wflows[0].get('name', 'workflow'), "tasks": []}
+                for w in wflows:
+                    merged['tasks'].extend(parse_workflow_dag(w, triggers).get('tasks', []))
+                workflow_dag = merged
+            elif glue_jobs:
+                # no workflow — still surface the jobs as un-chained nodes
+                workflow_dag = {"tasks": [{"key": j['name'], "legacy_name": j['name'],
+                                           "kind": "glue_job", "depends_on": []}
+                                          for j in glue_jobs]}
+
+        framework_tables = []
+        if data.get('postgres'):
+            pg = PostgresConnectionConfig.from_payload(data['postgres'])
+            fw = introspect_framework_tables(pg)
+            if fw.get('success'):
+                framework_tables = fw.get('framework_tables', [])
+            else:
+                errors['postgres'] = fw.get('error')
+
+        snowflake_objects = {}
+        if data.get('snowflake'):
+            sc = SnowflakeConnectionConfig.from_payload(data['snowflake'])
+            sf = list_snowflake_objects(sc)
+            if sf.get('success'):
+                snowflake_objects = {"tables": sf['tables'], "views": sf['views']}
+
+        graph = build_operational_lineage(
+            workflow_dag=workflow_dag, framework_tables=framework_tables,
+            glue_tables=glue_tables, snowflake_objects=snowflake_objects,
+            job_flags=data.get('job_flags') or {})
+        return jsonify({"success": True, "errors": errors, **graph})
+
+    @app.route('/api/sfglue/airflow/emit', methods=['POST'])
+    def sfglue_airflow_emit():
+        """Emit a TARGET Airflow DAG (dag-factory YAML) that orchestrates the MIGRATED
+        pipeline on Databricks + dbt — the mirror of /airflow/plan. Airflow here drives
+        Databricks notebook tasks + per-layer dbt tasks (staging/intermediate/marts),
+        never the retired Glue jobs.
+
+        Body: {artifacts (conversion), destination, dag_id?, schedule?,
+               databricks_conn_id?, notebook_root?, file_arrival_path?}.
+        """
+        from backend.integrations.airflow_migration import emit_target_airflow_yaml
+        data = request.get_json(silent=True) or {}
+        artifacts = data.get('artifacts') or {}
+        if not (artifacts.get('dbt_models') or artifacts.get('notebooks')):
+            return jsonify({"success": False,
+                            "error": "No conversion artifacts — run Convert first."}), 400
+        out = emit_target_airflow_yaml(
+            artifacts, data.get('destination') or {},
+            dag_id=data.get('dag_id') or 'cdl_migrated_databricks',
+            schedule=data.get('schedule') or '0 2 * * *',
+            databricks_conn_id=data.get('databricks_conn_id') or 'databricks_default',
+            notebook_root=data.get('notebook_root') or '/Shared/sfglue',
+            file_arrival_path=data.get('file_arrival_path'),
+            dbt_source=data.get('dbt_source') or 'workspace',
+            git_url=data.get('git_url'), git_branch=data.get('git_branch') or 'main',
+            dbt_cloud_conn_id=data.get('dbt_cloud_conn_id') or 'dbt_cloud_default',
+            dbt_cloud_job_id=data.get('dbt_cloud_job_id'))
+        return jsonify({"success": True, **out})
+
+    @app.route('/api/sfglue/workflows/plan', methods=['POST'])
+    def sfglue_workflows_plan():
+        """Phase 1 (gap plan): convert Glue Workflows into Databricks Jobs — plan only.
+
+        Body: {glue, destination?, artifact_map?, notifications?, pipeline_tasks?}.
+        artifact_map: {glue_job_name: {kind: notebook|dbt|framework, path/models/notebook}}
+        Returns {success, jobs: [{name, dag, job, yaml, placeholders, warnings}]}.
+        """
+        data = request.get_json(silent=True) or {}
+        if not data.get('glue'):
+            return jsonify({"success": False, "error": "Connect AWS Glue first."}), 400
+        glue_config = GlueConnectionConfig.from_payload(data['glue'])
+        wf = list_glue_workflows(glue_config)
+        if not wf.get('success'):
+            return jsonify({"success": False, "error": wf.get('error')}), 400
+        trg = list_glue_triggers(glue_config)
+        triggers = trg.get('triggers') or [] if trg.get('success') else []
+        destination = data.get('destination') or {}
+        amap = data.get('artifact_map') or {}
+        notif = (data.get('notifications') or {}).get('email_notifications') or {}
+
+        jobs_out = []
+        for w in wf.get('workflows') or []:
+            dag = parse_workflow_dag(w, triggers)
+            built = build_databricks_job(dag, artifact_map=amap, destination=destination,
+                                         email_notifications=notif or None,
+                                         file_arrival_url=data.get('file_arrival_url'))
+            jobs_out.append({
+                "name": dag['name'], "dag": dag, "job": built['job'],
+                "yaml": job_to_dab_yaml(built['job'], dag['name']),
+                "placeholders": built['placeholders'], "warnings": built['warnings'],
+            })
+        if not jobs_out:
+            return jsonify({"success": False,
+                            "error": "No Glue Workflows found in this account/region."}), 404
+        return jsonify({"success": True, "jobs": jobs_out})
+
+    @app.route('/api/sfglue/workflows/deploy', methods=['POST'])
+    def sfglue_workflows_deploy():
+        """Create/update the planned Databricks Jobs (idempotent by tags.sfglue_source).
+
+        Body: {destination: {workspace_url, personal_access_token/token}, jobs: [job-json]}.
+        """
+        data = request.get_json(silent=True) or {}
+        destination = data.get('destination') or {}
+        jobs = data.get('jobs') or []
+        if not jobs:
+            return jsonify({"success": False, "error": "No jobs to deploy — run Plan first."}), 400
+        url = destination.get('workspace_url') or destination.get('workspaceUrl') or ''
+        token = (destination.get('personal_access_token') or destination.get('token')
+                 or destination.get('access_token') or '')
+        # The Jobs API requires ABSOLUTE workspace paths for notebooks; the planned jobs
+        # carry bundle-relative paths (valid inside a DAB deploy). Rewrite them under a
+        # workspace root here so direct API deploys work too. Override with
+        # destination.notebook_root; default keeps the bundle's src/notebooks/ layout.
+        root = (destination.get('notebook_root') or '/Shared/sfglue').rstrip('/')
+        warehouse = destination.get('sql_warehouse_id') or destination.get('sqlWarehouseId') or ''
+        # Runtime parameters for the converted notebooks (they read these via widgets;
+        # without them S3_VENDOR_BUCKET is '' and boto3 rejects the empty bucket name).
+        pipeline_bucket = destination.get('pipeline_bucket') or ''
+        aws_region = destination.get('aws_region') or ''
+        results, ok = [], True
+        for job in jobs:
+            needs_env = False
+            for t in job.get('tasks') or []:
+                nb = t.get('notebook_task') or {}
+                if nb:
+                    bp = nb.setdefault('base_parameters', {})
+                    if pipeline_bucket:
+                        bp.setdefault('S3_VENDOR_BUCKET', pipeline_bucket)
+                        bp.setdefault('S3_DL_BUCKET', pipeline_bucket)
+                    if aws_region:
+                        bp.setdefault('AWS_REGION', aws_region)
+                    if destination.get('catalog'):
+                        bp.setdefault('catalog', destination['catalog'])
+                path = nb.get('notebook_path') or ''
+                if path and not path.startswith('/'):
+                    nb['notebook_path'] = f"{root}/{path}"
+                dbt = t.get('dbt_task') or {}
+                if dbt:
+                    proj = dbt.get('project_directory') or ''
+                    if proj and not proj.startswith('/'):
+                        dbt['project_directory'] = f"{root}/{proj}"
+                    # Serverless workspaces require an environment on command tasks, and
+                    # dbt needs a SQL warehouse to build against.
+                    t.setdefault('environment_key', 'sfglue_serverless')
+                    if warehouse:
+                        dbt.setdefault('warehouse_id', warehouse)
+                    needs_env = True
+            if needs_env and not job.get('environments'):
+                job['environments'] = [{
+                    'environment_key': 'sfglue_serverless',
+                    'spec': {'client': '2', 'dependencies': ['dbt-databricks']},
+                }]
+            r = deploy_job(job, workspace_url=url, token=token)
+            ok = ok and r.get('success', False)
+            if not r.get('success'):
+                logger.warning("sfglue deploy: job %r FAILED: %s",
+                               job.get('name'), r.get('error') or r)
+            results.append({"name": job.get('name'), **r})
+        return jsonify({"success": ok, "results": results,
+                        "notebook_root": root}), (200 if ok else 502)
+
+    @app.route('/api/sfglue/aws/buckets', methods=['POST'])
+    def sfglue_aws_buckets():
+        """List S3 buckets visible to the connected AWS credentials (bucket picker)."""
+        from backend.integrations.reference_cdl_tools import list_s3_buckets
+        data = request.get_json(silent=True) or {}
+        if not data.get('glue'):
+            return jsonify({"success": False, "error": "Connect AWS Glue first."}), 400
+        result = list_s3_buckets(GlueConnectionConfig.from_payload(data['glue']))
+        return jsonify(result), (200 if result.get('success') else 400)
+
+    @app.route('/api/sfglue/reference/ini', methods=['POST'])
+    def sfglue_reference_ini():
+        """Inspect or repoint the pipeline INI's bucket keys (config-driven source).
+
+        Body: {glue, bucket, key, action: 'read'|'repoint', section?, target_bucket?}.
+        Repoint writes a timestamped .bak copy first.
+        """
+        from backend.integrations.reference_cdl_tools import (
+            read_pipeline_ini, repoint_pipeline_ini)
+        data = request.get_json(silent=True) or {}
+        if not (data.get('glue') and data.get('bucket') and data.get('key')):
+            return jsonify({"success": False,
+                            "error": "glue connection, bucket and key are required"}), 400
+        cfg = GlueConnectionConfig.from_payload(data['glue'])
+        if (data.get('action') or 'read') == 'repoint':
+            result = repoint_pipeline_ini(cfg, data['bucket'], data['key'],
+                                          data.get('section') or '',
+                                          data.get('target_bucket') or '')
+        else:
+            result = read_pipeline_ini(cfg, data['bucket'], data['key'])
+        return jsonify(result), (200 if result.get('success') else 400)
+
+    @app.route('/api/sfglue/reference/seed-control', methods=['POST'])
+    def sfglue_reference_seed_control():
+        """Apply the reference control-schema seed (real framework tables) to Postgres."""
+        from backend.integrations.reference_cdl_tools import seed_control_schema
+        data = request.get_json(silent=True) or {}
+        if not data.get('postgres'):
+            return jsonify({"success": False, "error": "Connect Postgres first."}), 400
+        result = seed_control_schema(PostgresConnectionConfig.from_payload(data['postgres']))
+        return jsonify(result), (200 if result.get('success') else 400)
+
+    @app.route('/api/sfglue/reference/config-paths', methods=['POST'])
+    def sfglue_reference_config_paths():
+        """Report configuration_master's s3_*_path templates (zone-alignment check)."""
+        from backend.integrations.reference_cdl_tools import config_path_report
+        data = request.get_json(silent=True) or {}
+        if not data.get('postgres'):
+            return jsonify({"success": False, "error": "Connect Postgres first."}), 400
+        result = config_path_report(PostgresConnectionConfig.from_payload(data['postgres']))
+        return jsonify(result), (200 if result.get('success') else 400)
+
+    @app.route('/api/sfglue/reference/repoint-config-paths', methods=['POST'])
+    def sfglue_reference_repoint_config_paths():
+        """Rewrite hardcoded s3://<old>/ URIs in configuration_master path columns
+        to the new bucket (the INI repoint can't reach these).
+
+        Body: {postgres, old_bucket, new_bucket}."""
+        from backend.integrations.reference_cdl_tools import repoint_config_paths
+        data = request.get_json(silent=True) or {}
+        if not data.get('postgres'):
+            return jsonify({"success": False, "error": "Connect Postgres first."}), 400
+        result = repoint_config_paths(
+            PostgresConnectionConfig.from_payload(data['postgres']),
+            data.get('old_bucket') or '', data.get('new_bucket') or '',
+            mode=(data.get('mode') or 'template'))
+        return jsonify(result), (200 if result.get('success') else 400)
+
+    @app.route('/api/sfglue/workspace/push', methods=['POST'])
+    def sfglue_workspace_push():
+        """Push the converted notebooks + dbt project into the workspace so the
+        deployed orchestration Job can run — automates `workspace import-dir`.
+
+        Body: {destination, artifacts, root?}. Layout matches the bundle/deploy
+        convention: <root>/src/notebooks/ + <root>/dbt/.
+        """
+        from backend.integrations.workspace_push import build_push_plan, push_to_workspace
+        data = request.get_json(silent=True) or {}
+        destination = data.get('destination') or {}
+        artifacts = data.get('artifacts') or {}
+        if not (artifacts.get('notebooks') or artifacts.get('dbt_models')):
+            return jsonify({"success": False,
+                            "error": "No artifacts to push — run Convert first."}), 400
+        root = data.get('root') or destination.get('notebook_root') or '/Shared/sfglue'
+        dbt_files = build_dbt_project_files(artifacts, destination,
+                                            data.get('project_name') or 'sfglue_local_run')
+        conf_files = data.get('conf_files') or artifacts.get('conf_files') or {}
+        plan = build_push_plan(artifacts, dbt_files, root, conf_files=conf_files)
+        result = push_to_workspace(
+            plan,
+            workspace_url=destination.get('workspace_url') or destination.get('workspaceUrl') or '',
+            token=(destination.get('personal_access_token') or destination.get('token')
+                   or destination.get('access_token') or ''))
+        result['root'] = root
+        if not result.get('success'):
+            for item in (result.get('results') or []):
+                if item.get('status') != 'ok':
+                    logger.warning("sfglue push: %r FAILED: %s",
+                                   item.get('path') or item.get('name'),
+                                   item.get('error') or item)
+            if result.get('error'):
+                logger.warning("sfglue push failed: %s", result['error'])
+        return jsonify(result), (200 if result.get('success') else 502)
+
+    @app.route('/api/sfglue/workflows/run', methods=['POST'])
+    def sfglue_workflows_run():
+        """The workflow dry-run gate: trigger a deployed Job and wait for the verdict.
+
+        Body: {destination, job_id, timeout_seconds?}. Returns per-task result states —
+        a SUCCESS here is the Phase-1 'workflow verified' signal.
+        """
+        from backend.integrations.workspace_push import run_job_and_wait
+        data = request.get_json(silent=True) or {}
+        destination = data.get('destination') or {}
+        job_id = data.get('job_id')
+        if not job_id:
+            return jsonify({"success": False, "error": "job_id is required — deploy first."}), 400
+        result = run_job_and_wait(
+            job_id,
+            workspace_url=destination.get('workspace_url') or destination.get('workspaceUrl') or '',
+            token=(destination.get('personal_access_token') or destination.get('token')
+                   or destination.get('access_token') or ''),
+            timeout_seconds=int(data.get('timeout_seconds') or 1800))
+        return jsonify(result), (200 if result.get('success') else 502)
+
+    @app.route('/api/sfglue/governance/plan', methods=['POST'])
+    def sfglue_governance_plan():
+        """Phase 7 (gap plan): Lake Formation permissions → UC GRANT script — DIFF-ONLY.
+
+        Body: {glue, destination, principal_map?: {iam_arn: uc_group}}.
+        Returns the grant SQL + unmapped-principal worksheet; never applies anything.
+        """
+        data = request.get_json(silent=True) or {}
+        if not data.get('glue'):
+            return jsonify({"success": False, "error": "Connect AWS Glue first."}), 400
+        glue_config = GlueConnectionConfig.from_payload(data['glue'])
+        perms = list_lakeformation_permissions(glue_config)
+        if not perms.get('success'):
+            return jsonify({"success": False, "error": perms.get('error')}), 400
+        destination = data.get('destination') or {}
+        mapped = map_permissions_to_uc_grants(
+            perms['permissions'], catalog=destination.get('catalog') or 'main',
+            principal_map=data.get('principal_map') or {})
+        return jsonify({"success": True, "permission_count": len(perms['permissions']),
+                        **mapped})
+
+    @app.route('/api/sfglue/outbound/kit', methods=['POST'])
+    def sfglue_outbound_kit():
+        """Phase 6 (gap plan): the outbound cutover checklist + (best-effort) consumer
+        inventory from Snowflake ACCESS_HISTORY.
+
+        Body: {snowflake?, destination, consumers?: [{name, kind, objects}]}.
+        """
+        data = request.get_json(silent=True) or {}
+        destination = data.get('destination') or {}
+        consumers = data.get('consumers') or []
+        inventory_error = None
+        if not consumers and data.get('snowflake'):
+            try:
+                sf_config = SnowflakeConnectionConfig.from_payload(data['snowflake'])
+                with open_query_runner(sf_config) as run:
+                    rows = run(ACCESS_HISTORY_SQL)
+                by_user: dict = {}
+                for r in rows or []:
+                    by_user.setdefault(str(r[0]), set()).add(str(r[1]))
+                consumers = [{"name": u, "kind": "service account",
+                              "objects": sorted(objs)[:50]}
+                             for u, objs in sorted(by_user.items())]
+            except Exception as exc:  # noqa: BLE001 — inventory is best-effort
+                inventory_error = (f"ACCESS_HISTORY unavailable ({exc}) — enter consumers "
+                                   "manually (requires Snowflake Enterprise edition).")
+        md = generate_outbound_cutover_md(consumers, destination)
+        return jsonify({"success": True, "outbound_md": md, "consumers": consumers,
+                        "inventory_error": inventory_error})
 
     @app.route('/api/sfglue/postgres/generate-ingestion', methods=['POST'])
     def sfglue_postgres_generate_ingestion():
@@ -351,6 +897,18 @@ def register_snowflake_glue_routes(app, call_ai=None):
                 out['snowflake'] = {"tables": sf['tables'], "views": sf['views']}
             else:
                 out['errors']['snowflake'] = sf.get('error')
+            # Phase 5 (gap plan): pipeline objects, opt-in via include.
+            sf_include = {str(x).strip().lower() for x in (data.get('include') or [])}
+            if out['snowflake'] is not None and 'pipeline' in sf_include:
+                pl = list_snowflake_pipeline_objects(sf_config)
+                if pl.get('success'):
+                    out['snowflake']['pipeline'] = {
+                        k: pl.get(k, []) for k in
+                        ('tasks', 'streams', 'pipes', 'procedures', 'stages')}
+                    if pl.get('errors'):
+                        out['errors']['snowflake_pipeline'] = pl['errors']
+                else:
+                    out['errors']['snowflake_pipeline'] = pl.get('error')
 
         if data.get('glue'):
             glue_config = GlueConnectionConfig.from_payload(data['glue'])
@@ -366,6 +924,29 @@ def register_snowflake_glue_routes(app, call_ai=None):
                 glue_block['jobs'] = jobs['jobs']
             else:
                 out['errors']['glue_jobs'] = jobs.get('error')
+
+            # Orchestration surface (Phase 0 of the gap plan) — opt-in via
+            # include: ["workflows","triggers","crawlers"] so existing clients
+            # pay nothing. Per-source errors, same as catalog/jobs.
+            include = {str(x).strip().lower() for x in (data.get('include') or [])}
+            if 'workflows' in include:
+                wf = list_glue_workflows(glue_config)
+                if wf.get('success'):
+                    glue_block['workflows'] = wf['workflows']
+                else:
+                    out['errors']['glue_workflows'] = wf.get('error')
+            if 'triggers' in include:
+                trg = list_glue_triggers(glue_config)
+                if trg.get('success'):
+                    glue_block['triggers'] = trg['triggers']
+                else:
+                    out['errors']['glue_triggers'] = trg.get('error')
+            if 'crawlers' in include:
+                cr = list_glue_crawlers(glue_config)
+                if cr.get('success'):
+                    glue_block['crawlers'] = cr['crawlers']
+                else:
+                    out['errors']['glue_crawlers'] = cr.get('error')
             out['glue'] = glue_block
 
         if out['snowflake'] is None and out['glue'] is None:
@@ -1110,7 +1691,93 @@ def register_snowflake_glue_routes(app, call_ai=None):
                 logger.warning("sfglue convert: postgres ingestion generation failed: %s", exc)
                 errors.setdefault("postgres_ingestion", str(exc))
 
-        artifacts.update({"success": True, "errors": errors})
+        # Phase 2+3 (gap plan): when a Postgres control DB is connected, migrate the
+        # metadata framework itself — control-schema DDL, the transform SQL stored in
+        # query_configuration → dbt models, framework runtime notebooks, dq_rules →
+        # dbt tests/quarantine models, message_template → notification config. All
+        # additive and best-effort: a control-plane failure never sinks the conversion.
+        if data.get('postgres'):
+            try:
+                fw = introspect_framework_tables(
+                    PostgresConnectionConfig.from_payload(data['postgres']))
+                if fw.get('success') and fw.get('framework_tables'):
+                    entries = {e['canonical']: e for e in fw['framework_tables']
+                               if 'error' not in e}
+                    artifacts['control_plane'] = {
+                        "tables": sorted(entries.keys()),
+                        "skipped": [], "dq_summary": {},
+                    }
+                    # 2a. control schema DDL (framework tables as Delta)
+                    artifacts.setdefault('ddl', {}).update(
+                        generate_control_schema_ddl(list(entries.values()), destination))
+                    # 2b. framework runtime notebooks (templated, deterministic)
+                    artifacts.setdefault('notebooks', {}).update(
+                        generate_framework_notebooks(destination))
+                    # 2c. query_configuration rows → dbt models (the real transform SQL
+                    # in config-driven pipelines lives HERE, not in the Glue scripts)
+                    qc = entries.get('query_configuration')
+                    if qc:
+                        bronze = sorted((artifacts.get('plan') or {}).get('bronze_tables') or [])
+                        refs = [f[:-4] for f in (artifacts.get('dbt_models') or {})]
+                        res = convert_query_configuration_rows(
+                            ai, qc, destination=destination, bronze_sources=bronze,
+                            available_refs=refs, map_concurrent=_map_concurrent)
+                        artifacts.setdefault('dbt_models', {}).update(res['models'])
+                        artifacts['control_plane']['skipped'] = res['skipped']
+                        logger.info("sfglue convert: query_configuration → %d dbt model(s), "
+                                    "%d skipped", len(res['models']), len(res['skipped']))
+                    # 3. dq_rules → dbt tests + quarantine models + notebook checks
+                    dq = entries.get('dq_rules')
+                    if dq:
+                        compiled = compile_dq_rules(
+                            dq, known_models=[f[:-4] for f in (artifacts.get('dbt_models') or {})])
+                        if compiled['dq_schema_yml']:
+                            artifacts['dq_schema_yml'] = compiled['dq_schema_yml']
+                        artifacts.setdefault('dbt_models', {}).update(compiled['quarantine_models'])
+                        if compiled['notebook_checks'] or compiled['unclassified']:
+                            artifacts.setdefault('notes', {})['_dq__review.md'] = (
+                                "# DQ rules needing review\n\n"
+                                f"File-level checks (run in the bronze notebooks): "
+                                f"{compiled['notebook_checks']}\n\n"
+                                f"Unclassified rules (translate manually): "
+                                f"{compiled['unclassified']}\n")
+                        artifacts['control_plane']['dq_summary'] = compiled['summary']
+                        logger.info("sfglue convert: dq_rules compiled: %s", compiled['summary'])
+                    # 3b. message_template → Jobs notification block
+                    mt = entries.get('message_template')
+                    if mt:
+                        artifacts['notifications'] = compile_notifications(mt)
+                elif fw.get('success'):
+                    # Connected fine but found NO control tables — almost always the wrong
+                    # database (source DB vs control DB). Say so loudly instead of silently
+                    # skipping: this exact silence cost a debugging round.
+                    pg_db = (data['postgres'] or {}).get('database') or '(unknown)'
+                    hint = (f"No control-framework tables (configuration_master, "
+                            f"query_configuration, dq_rules, …) found in Postgres database "
+                            f"'{pg_db}'. If the config tables live in a different database "
+                            "(e.g. 'control'), point the Postgres connection there and "
+                            "re-run the conversion.")
+                    detected = (artifacts.get('plan') or {}).get('config_driven') or {}
+                    if detected.get('config_tables'):
+                        hint += (" The Glue scripts reference these config tables: "
+                                 + ", ".join(detected['config_tables'][:8]) + ".")
+                    errors.setdefault('control_plane', hint)
+                    logger.info("sfglue convert: control-plane skipped — %s", hint)
+                else:
+                    errors.setdefault('control_plane', fw.get('error'))
+            except Exception as exc:  # noqa: BLE001 — control plane is additive
+                logger.warning("sfglue convert: control-plane migration failed: %s", exc)
+                errors.setdefault('control_plane', str(exc))
+
+        artifacts.update({
+            "success": True,
+            "errors": errors,
+            # Phase 0.4: schema-versioned typed artifact inventory — additive, so
+            # existing frontend code is unaffected; new artifact classes (workflows,
+            # DQ rules, grants) flow through review/report via this registry.
+            "schema_version": SCHEMA_VERSION,
+            "artifact_registry": build_artifact_registry(artifacts),
+        })
         return jsonify(artifacts)
 
     @app.route('/api/sfglue/export', methods=['POST'])
@@ -1128,8 +1795,14 @@ def register_snowflake_glue_routes(app, call_ai=None):
             return jsonify({"success": False,
                             "error": "No conversion artifacts to export — run Convert first."}), 400
         project_name = data.get('project_name') or 'sfglue_migration'
+        export_format = (data.get('format') or '').strip().lower()
         try:
             files = build_dbt_project_files(artifacts, destination, project_name)
+            if export_format in ('bundle', 'dab'):
+                # Databricks Asset Bundle export (Phase 0.3): wraps the dbt project
+                # + notebooks in a deployable bundle with dev/test/prod targets.
+                files = build_bundle_files(artifacts, destination, project_name,
+                                           dbt_files=files)
             import io
             import zipfile
             buf = io.BytesIO()

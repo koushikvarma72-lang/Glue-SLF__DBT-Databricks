@@ -214,6 +214,163 @@ def list_glue_jobs(config: GlueConnectionConfig) -> dict:
         return {"success": False, "error": f"AWS Glue job listing failed: {exc}"}
 
 
+# ─── orchestration surface: workflows / triggers / crawlers ─────────────────
+#
+# Phase 0 of the gap plan: read the pieces that sequence the pipeline (Glue
+# Workflows + Triggers) and the pieces that infer schemas (Crawlers) so the
+# Phase-1 orchestration converter has real input. Normalizers are pure
+# functions (unit-testable without AWS); the list_* wrappers follow the same
+# error-contract as list_glue_jobs.
+
+def _normalize_trigger(t: dict) -> dict:
+    """Flatten a Glue Trigger API dict to the shape the orchestration engine consumes."""
+    t = t or {}
+    actions = [{"job_name": a.get("JobName") or "", "crawler_name": a.get("CrawlerName") or ""}
+               for a in t.get("Actions") or []]
+    pred = t.get("Predicate") or {}
+    conditions = [{
+        "logical_operator": c.get("LogicalOperator") or "EQUALS",
+        "job_name": c.get("JobName") or "",
+        "state": c.get("State") or "",
+        "crawler_name": c.get("CrawlerName") or "",
+        "crawl_state": c.get("CrawlState") or "",
+    } for c in pred.get("Conditions") or []]
+    return {
+        "name": t.get("Name"),
+        "workflow_name": t.get("WorkflowName") or "",
+        "type": t.get("Type") or "",                     # SCHEDULED | CONDITIONAL | ON_DEMAND | EVENT
+        "state": t.get("State") or "",
+        "schedule": t.get("Schedule") or "",             # cron(...) for SCHEDULED
+        "actions": actions,
+        "predicate_logical": pred.get("Logical") or ("AND" if conditions else ""),
+        "conditions": conditions,
+    }
+
+
+def _normalize_crawler(c: dict) -> dict:
+    """Flatten a Glue Crawler API dict (targets + schedule are what migration needs)."""
+    c = c or {}
+    raw_targets = c.get("Targets") or {}
+    targets: list[dict] = []
+    for s3t in raw_targets.get("S3Targets") or []:
+        targets.append({"kind": "s3", "path": s3t.get("Path") or ""})
+    for jt in raw_targets.get("JdbcTargets") or []:
+        targets.append({"kind": "jdbc", "path": jt.get("Path") or "",
+                        "connection": jt.get("ConnectionName") or ""})
+    for ct in raw_targets.get("CatalogTargets") or []:
+        targets.append({"kind": "catalog", "database": ct.get("DatabaseName") or "",
+                        "tables": list(ct.get("Tables") or [])})
+    for dt in raw_targets.get("DeltaTargets") or []:
+        targets.append({"kind": "delta", "paths": list(dt.get("DeltaTables") or [])})
+    sched = c.get("Schedule") or {}
+    if isinstance(sched, str):
+        sched = {"ScheduleExpression": sched}
+    return {
+        "name": c.get("Name"),
+        "database": c.get("DatabaseName") or "",
+        "table_prefix": c.get("TablePrefix") or "",
+        "schedule": sched.get("ScheduleExpression") or "",
+        "schedule_state": sched.get("State") or "",
+        "targets": targets,
+    }
+
+
+def _normalize_workflow(w: dict) -> dict:
+    """Flatten a Glue Workflow (with IncludeGraph) into {name, nodes, edges}.
+
+    Node ``type`` is lowercased ('trigger'|'job'|'crawler'); edges reference node ids.
+    """
+    w = w or {}
+    graph = w.get("Graph") or {}
+    nodes = [{"id": n.get("UniqueId"), "type": (n.get("Type") or "").lower(),
+              "name": n.get("Name")} for n in graph.get("Nodes") or []]
+    edges = [{"source": e.get("SourceId"), "target": e.get("DestinationId")}
+             for e in graph.get("Edges") or []]
+    return {
+        "name": w.get("Name"),
+        "description": w.get("Description") or "",
+        "default_run_properties": w.get("DefaultRunProperties") or {},
+        "nodes": nodes,
+        "edges": edges,
+    }
+
+
+def list_glue_workflows(config: GlueConnectionConfig) -> dict:
+    """List Glue Workflows with their full trigger/job/crawler graphs.
+
+    Returns {success, workflows: [{name, description, nodes, edges, ...}]}.
+    """
+    errors = validate_config(config)
+    if errors:
+        return {"success": False, "error": " ".join(errors)}
+    try:
+        with _aws_session(config) as session:
+            glue = session.client("glue")
+        names: list[str] = []
+        token = None
+        while True:  # list_workflows has no paginator in older botocore — manual NextToken loop
+            kwargs = {"NextToken": token} if token else {}
+            page = glue.list_workflows(**kwargs)
+            names.extend(page.get("Workflows", []))
+            token = page.get("NextToken")
+            if not token:
+                break
+        workflows = []
+        for i in range(0, len(names), 25):  # batch_get_workflows caps at 25 names
+            batch = glue.batch_get_workflows(Names=names[i:i + 25], IncludeGraph=True)
+            workflows.extend(_normalize_workflow(w) for w in batch.get("Workflows", []))
+        return {"success": True, "workflows": workflows}
+    except RuntimeError as exc:
+        return {"success": False, "error": str(exc)}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("AWS Glue workflow listing failed: %s", exc)
+        return {"success": False, "error": f"AWS Glue workflow listing failed: {exc}"}
+
+
+def list_glue_triggers(config: GlueConnectionConfig) -> dict:
+    """List all Glue Triggers (schedules + conditional predicates).
+
+    Standalone triggers matter too — not every client wires triggers into a Workflow.
+    Returns {success, triggers: [...]} (see _normalize_trigger for the shape).
+    """
+    errors = validate_config(config)
+    if errors:
+        return {"success": False, "error": " ".join(errors)}
+    try:
+        with _aws_session(config) as session:
+            glue = session.client("glue")
+        triggers = []
+        paginator = glue.get_paginator("get_triggers")
+        for page in paginator.paginate():
+            triggers.extend(_normalize_trigger(t) for t in page.get("Triggers", []))
+        return {"success": True, "triggers": triggers}
+    except RuntimeError as exc:
+        return {"success": False, "error": str(exc)}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("AWS Glue trigger listing failed: %s", exc)
+        return {"success": False, "error": f"AWS Glue trigger listing failed: {exc}"}
+
+
+def list_glue_crawlers(config: GlueConnectionConfig) -> dict:
+    """List Glue Crawlers (name, target paths, schedule, output database/prefix)."""
+    errors = validate_config(config)
+    if errors:
+        return {"success": False, "error": " ".join(errors)}
+    try:
+        with _aws_session(config) as session:
+            glue = session.client("glue")
+        crawlers = []
+        paginator = glue.get_paginator("get_crawlers")
+        for page in paginator.paginate():
+            crawlers.extend(_normalize_crawler(c) for c in page.get("Crawlers", []))
+        return {"success": True, "crawlers": crawlers}
+    except RuntimeError as exc:
+        return {"success": False, "error": str(exc)}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("AWS Glue crawler listing failed: %s", exc)
+        return {"success": False, "error": f"AWS Glue crawler listing failed: {exc}"}
+
+
 def fetch_glue_job_scripts(config: GlueConnectionConfig, jobs: list[dict]) -> dict:
     """Fetch each job's ETL script text from its S3 ScriptLocation.
 

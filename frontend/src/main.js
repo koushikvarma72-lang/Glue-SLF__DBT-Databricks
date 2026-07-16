@@ -30,6 +30,7 @@ const PAGE_GUARDS = {
   'sfglue-review': (s) => (s.sfGlueLineage ? null : 'sfglue-connect'),
   'sfglue-databricks-agent': (s) => (s.sfGlueLineage ? null : 'sfglue-connect'),
   'sfglue-dbt-agent': (s) => (s.sfGlueLineage ? null : 'sfglue-connect'),
+  'sfglue-map': (s) => (s.sfGlueConversion ? null : 'sfglue-connect'),
   'sfglue-report': (s) => (s.sfGlueLineage || s.sfGlueConversion ? null : 'sfglue-connect'),
 };
 

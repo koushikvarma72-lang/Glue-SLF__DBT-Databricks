@@ -24,8 +24,10 @@ _BEDROCK_TIERS = {
                  or os.environ.get("BEDROCK_MODEL_ID") or "us.anthropic.claude-sonnet-4-6"),
     "premium": os.environ.get("BEDROCK_MODEL_PREMIUM", "us.anthropic.claude-opus-4-8"),
 }
-# sfglue tasks → tier. Conversion runs on 'standard' (Sonnet); everything defaults to standard.
-_TASK_TIERS = {"sfglue_migration": "standard"}
+# sfglue tasks → tier. Conversion runs on 'standard' (Sonnet); the per-row
+# query_configuration SQL rewrites are simple SELECT mappings → 'fast' (Haiku,
+# ~3-4x quicker per call). Everything else defaults to standard.
+_TASK_TIERS = {"sfglue_migration": "standard", "qc_to_dbt": "fast"}
 _DEFAULT_TIER = "standard"
 
 
@@ -56,16 +58,22 @@ def _text(out):
     return str(out or "")
 
 
-def call_ai(prompt, system_prompt=None, max_tokens=4000, temperature=0, task=None, aws_creds=None):
+def call_ai(prompt, system_prompt=None, max_tokens=4000, temperature=0, task=None,
+            aws_creds=None, max_prompt_chars=None):
     """Dispatch a single chat completion to the configured provider (Bedrock by default).
 
     aws_creds (optional dict): AWS credentials to use for Bedrock — typically the ones the
     user entered for the Glue connection, so the AI works without separately configuring the
     server's environment. Keys: region, profile, access_key_id, secret_access_key,
     session_token. Ignored for the Anthropic/OpenAI providers.
+
+    max_prompt_chars (optional int): raises the provider's prompt-truncation limit for
+    large-context calls (the fidelity grader sends many artifacts in one prompt).
+    None keeps each provider's default.
     """
     provider = _provider()
     mt = max_tokens or 4000
+    mpc = {"max_prompt_chars": max_prompt_chars} if max_prompt_chars else {}
 
     if provider == "anthropic":
         key = os.environ.get("ANTHROPIC_API_KEY")
@@ -74,7 +82,7 @@ def call_ai(prompt, system_prompt=None, max_tokens=4000, temperature=0, task=Non
         model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
         return _text(call_anthropic_chat(
             model, prompt, key, system_prompt=system_prompt,
-            temperature=temperature, max_tokens=mt))
+            temperature=temperature, max_tokens=mt, **mpc))
 
     if provider == "openai":
         key = os.environ.get("OPENAI_API_KEY")
@@ -84,7 +92,7 @@ def call_ai(prompt, system_prompt=None, max_tokens=4000, temperature=0, task=Non
         base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
         return _text(call_openai_compatible_chat(
             model, prompt, key, base_url=base_url, system_prompt=system_prompt,
-            temperature=temperature, max_tokens=mt))
+            temperature=temperature, max_tokens=mt, **mpc))
 
     # Default: Amazon Bedrock via the Converse API. Prefer credentials passed in from the
     # request (the Glue connection's creds); otherwise fall back to the server environment /
@@ -97,4 +105,4 @@ def call_ai(prompt, system_prompt=None, max_tokens=4000, temperature=0, task=Non
         aws_access_key_id=creds.get("access_key_id"),
         aws_secret_access_key=creds.get("secret_access_key"),
         aws_session_token=creds.get("session_token"),
-        system_prompt=system_prompt, temperature=temperature, max_tokens=mt))
+        system_prompt=system_prompt, temperature=temperature, max_tokens=mt, **mpc))

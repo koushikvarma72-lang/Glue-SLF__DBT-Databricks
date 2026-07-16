@@ -12,6 +12,7 @@ import { store } from '../store.js';
 import { renderLineageGroups, setAllGroups } from '../components/lineageGroups.js';
 import { renderMermaidLineage, toggleMermaidFit, downloadGraphImage } from '../components/mermaidLineage.js';
 import { renderLineageFlow } from '../components/lineageFlow.js';
+import { renderLineageOps, renderOpsHeader, augmentLineageWithOps } from '../components/lineageOps.js';
 import { esc } from '../components/ui.js';
 import { notify } from '../components/notify.js';
 import { confirmModal } from '../components/modal.js';
@@ -20,6 +21,7 @@ import { confirmModal } from '../components/modal.js';
 // 'groups' = collapsible layer×schema lanes. Module-scoped so it survives page
 // re-renders within a session.
 let sfgLineageView = 'flow';
+let sfgOpsGraph = null;   // cached operational-lineage graph (fetched lazily on first Ops view)
 
 const SEVERITY_COLOR = { high: '#dc2626', medium: '#ca8a04', low: '#16a34a' };
 const LEGEND = [
@@ -28,6 +30,30 @@ const LEGEND = [
   ['silver', '#0f766e', 'Silver — cleaned / conformed'],
   ['gold', '#ca8a04', 'Gold — marts / views'],
 ];
+
+// Click-drag panning for any natively-scrolling container (Groups lanes). A real
+// drag swallows the trailing click so cards/groups underneath don't toggle.
+function enableDragPan(el) {
+  if (!el || el._dragPan) return;
+  el._dragPan = true;
+  el.style.cursor = 'grab';
+  let panning = false, dragged = false, sx = 0, sy = 0, sl = 0, st = 0;
+  el.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    panning = true; dragged = false;
+    sx = e.clientX; sy = e.clientY; sl = el.scrollLeft; st = el.scrollTop;
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!panning) return;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (!dragged && Math.hypot(dx, dy) > 4) { dragged = true; el.style.cursor = 'grabbing'; }
+    if (dragged) { el.scrollLeft = sl - dx; el.scrollTop = st - dy; }
+  });
+  window.addEventListener('mouseup', () => { panning = false; el.style.cursor = 'grab'; });
+  el.addEventListener('click', (e) => {
+    if (dragged) { dragged = false; e.stopPropagation(); e.preventDefault(); }
+  }, true);
+}
 
 function buildPayloadConfigs(state) {
   const sf = state.sfGlueSnowflakeConfig || {};
@@ -158,6 +184,7 @@ export function renderSfGlueLineagePage(container) {
                   <button id="sfglue-view-flow" style="padding:4px 12px;font-size:12px;border:none;cursor:pointer;${sfgLineageView === 'flow' ? 'background:var(--success,#2f7d5b);color:#fff' : 'background:var(--bg-surface,#fff);color:var(--text-secondary,#64748b)'}" title="Readable flow: hover a table to trace its pipeline; Glue jobs sit on the arrows">🌊 Flow</button>
                   <button id="sfglue-view-diagram" style="padding:4px 12px;font-size:12px;border:none;cursor:pointer;${sfgLineageView === 'diagram' ? 'background:var(--success,#2f7d5b);color:#fff' : 'background:var(--bg-surface,#fff);color:var(--text-secondary,#64748b)'}" title="Flow diagram: source → gold, same table in both systems merged">🗺 Diagram</button>
                   <button id="sfglue-view-groups" style="padding:4px 12px;font-size:12px;border:none;cursor:pointer;${sfgLineageView === 'groups' ? 'background:var(--success,#2f7d5b);color:#fff' : 'background:var(--bg-surface,#fff);color:var(--text-secondary,#64748b)'}" title="Collapsible lanes grouped by medallion layer and schema">🏛 Groups</button>
+                  <button id="sfglue-view-ops" style="padding:4px 12px;font-size:12px;border:none;cursor:pointer;${sfgLineageView === 'ops' ? 'background:var(--success,#2f7d5b);color:#fff' : 'background:var(--bg-surface,#fff);color:var(--text-secondary,#64748b)'}" title="Operational flow: Glue job chain + RDS control tables + per-table data edges from config + source-health">🔧 Ops flow</button>
                 </div>
                 <span id="sfglue-diagram-tools" style="display:${sfgLineageView === 'diagram' ? 'inline-flex' : 'none'};align-items:center;gap:8px">
                   <button class="btn btn-secondary" id="sfglue-graph-fit" style="padding:4px 10px" title="Fit the whole diagram to the box">Fit</button>
@@ -169,6 +196,7 @@ export function renderSfGlueLineagePage(container) {
                 </span>
               </div>
             </div>
+            <div id="sfglue-ops-header"></div>
             <div id="sfglue-graph" style="border:1px solid var(--border);border-radius:10px;background:var(--bg-surface);padding:14px;height:560px;overflow:hidden"></div>
 
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:20px">
@@ -235,12 +263,51 @@ export function renderSfGlueLineagePage(container) {
     container.querySelector('#sfglue-job-modal-close')?.focus();  // a11y: move focus into the dialog
   };
 
+  // Fetch the operational graph once (Glue Workflow chain + RDS config edges); on
+  // arrival re-mount so the Flow view gains the header strips + config-derived edges.
+  const ensureOpsGraph = () => {
+    if (sfgOpsGraph || ensureOpsGraph._inflight) return;
+    const st = store.get();
+    const { snowflake, glue } = buildPayloadConfigs(st);
+    const pgOk = !!(st.sfGluePostgresConnection && st.sfGluePostgresConnection.success);
+    const postgres = pgOk ? (st.sfGluePostgresConfig || undefined) : undefined;
+    if (!glue && !postgres) return;
+    ensureOpsGraph._inflight = true;
+    api.buildOperationalLineage({ glue, glueDatabases: st.sfGlueGlueDatabases, postgres, snowflake })
+      .then((g) => { sfgOpsGraph = g; mountLineageGraph(); })
+      .catch(() => { /* header simply doesn't render; the base flow still works */ })
+      .finally(() => { ensureOpsGraph._inflight = false; });
+  };
+
   const mountLineageGraph = () => {
     const el = container.querySelector('#sfglue-graph');
-    if (!el || !data || !data.lineage) return;
+    const header = container.querySelector('#sfglue-ops-header');
+    if (!el) return;
+    if (sfgLineageView !== 'ops' && (!data || !data.lineage)) return;
+    // The control-plane + execution-chain strips sit above the graph in Flow view
+    // (the Ops view renders its own copies inline).
+    if (header) {
+      if (sfgLineageView === 'flow' && sfgOpsGraph) {
+        renderOpsHeader(header, sfgOpsGraph, { onJobClick: showJobDetails });
+      } else {
+        header.innerHTML = '';
+      }
+    }
+    if (sfgLineageView === 'ops') {
+      // Flow full-height in the page — no nested scroll box (avoid window-in-window).
+      el.style.height = 'auto'; el.style.overflow = 'visible';
+      if (sfgOpsGraph) { renderLineageOps(el, sfgOpsGraph, { onJobClick: showJobDetails }); return; }
+      el.innerHTML = '<div style="padding:24px;font-size:13px;color:var(--text-muted)">Building operational lineage from the Glue Workflow + RDS control tables…</div>';
+      ensureOpsGraph();
+      return;
+    }
+    // Restore the fixed graph box for the canvas-style views (Ops sets its own above).
+    el.style.height = '560px';
     if (sfgLineageView === 'flow') {
       el.style.overflow = 'hidden';          // the inner .lf-scroll handles scrolling
-      renderLineageFlow(el, data.lineage, { onJobClick: showJobDetails });
+      ensureOpsGraph();                      // strips + config edges arrive async, then re-mount
+      const flowLineage = sfgOpsGraph ? augmentLineageWithOps(data.lineage, sfgOpsGraph) : data.lineage;
+      renderLineageFlow(el, flowLineage, { onJobClick: showJobDetails });
     } else if (sfgLineageView === 'diagram') {
       el.style.overflow = 'hidden';          // pan/zoom replaces scrollbars
       // isCurrent lets the async mermaid render bail if the user switches views
@@ -249,6 +316,7 @@ export function renderSfGlueLineagePage(container) {
     } else {
       el.style.overflow = 'auto';            // lanes scroll natively
       renderLineageGroups(el, data.lineage, { onJobClick: showJobDetails });
+      enableDragPan(el);
     }
   };
   mountLineageGraph();
@@ -261,9 +329,11 @@ export function renderSfGlueLineagePage(container) {
     const f = container.querySelector('#sfglue-view-flow');
     const d = container.querySelector('#sfglue-view-diagram');
     const g = container.querySelector('#sfglue-view-groups');
+    const o = container.querySelector('#sfglue-view-ops');
     if (f) f.style.cssText += ';' + (v === 'flow' ? on : off);
     if (d) d.style.cssText += ';' + (v === 'diagram' ? on : off);
     if (g) g.style.cssText += ';' + (v === 'groups' ? on : off);
+    if (o) o.style.cssText += ';' + (v === 'ops' ? on : off);
     const dt = container.querySelector('#sfglue-diagram-tools');
     const gt = container.querySelector('#sfglue-groups-tools');
     if (dt) dt.style.display = v === 'diagram' ? 'inline-flex' : 'none';
@@ -273,6 +343,7 @@ export function renderSfGlueLineagePage(container) {
   container.querySelector('#sfglue-view-flow')?.addEventListener('click', () => setLineageView('flow'));
   container.querySelector('#sfglue-view-diagram')?.addEventListener('click', () => setLineageView('diagram'));
   container.querySelector('#sfglue-view-groups')?.addEventListener('click', () => setLineageView('groups'));
+  container.querySelector('#sfglue-view-ops')?.addEventListener('click', () => setLineageView('ops'));
   container.querySelector('#sfglue-graph-fit')?.addEventListener('click', () => toggleMermaidFit(container.querySelector('#sfglue-graph')));
   container.querySelector('#sfglue-graph-download')?.addEventListener('click', () => downloadGraphImage(container.querySelector('#sfglue-graph'), { filename: 'snowflake-glue-lineage', format: 'png' }));
 
@@ -327,6 +398,7 @@ export function renderSfGlueLineagePage(container) {
     }
     const e = container.querySelector('#sfglue-error');
     if (e) e.textContent = '';
+    sfgOpsGraph = null;   // fresh source → rebuild the ops graph on next Ops view
     store.set({ isBuildingSfGlueLineage: true });
     try {
       const result = await api.buildSnowflakeGlueLineage({ snowflake, glue });
