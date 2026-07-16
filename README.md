@@ -61,6 +61,11 @@ npm run dev                             # http://localhost:5173
   Databricks notebook tasks + per-layer dbt tasks (`dbt build --select staging|intermediate|marts`)
   — never the retired Glue jobs. The emitted DAG round-trips through the same parser sfglue uses
   to ingest source DAGs, so the tool covers Airflow on both ends. Engine: `emit_target_airflow_yaml`.
+- **Sign in with AWS SSO**: the AWS card on Connect has a device-flow login (the same flow
+  `aws sso login` uses) — click, approve in the browser tab, pick account/role, and short-lived
+  role credentials fill the key fields + auto-test. The ~8h SSO access token never leaves the
+  backend process; only ~1h role credentials reach the browser. No AWS-side app registration
+  needed. Routes: `/api/aws/sso/{start,poll,accounts,credentials}`; engine: `aws_sso_auth.py`.
 - **Operational lineage** (`POST /api/sfglue/lineage/operational`, "🔧 Ops flow" view): fuses
   the Glue Workflow job chain + the RDS control-table rows + the catalog into one laned graph —
   control plane (RDS) on top, the Glue job execution chain, medallion data columns

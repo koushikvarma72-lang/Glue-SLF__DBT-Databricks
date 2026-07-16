@@ -171,6 +171,12 @@ export function renderSfGlueConnectPage(container) {
                   ${glueOk ? '<span class="badge badge-success" role="status" style="margin-left:auto;font-size:11px"><span aria-hidden="true">✓</span> Connected</span>' : ''}
                 </div>
                 <div class="card-body">
+                  <!-- "Sign in with AWS" — Identity Center device flow; fills the key
+                       fields below with short-lived role credentials. -->
+                  <button class="btn btn-secondary" id="glue-sso-login" style="width:100%;justify-content:center;margin-bottom:4px">
+                    <span aria-hidden="true">🔐</span> Sign in with AWS SSO
+                  </button>
+                  <div id="glue-sso-status" role="status" style="font-size:11.5px;color:var(--text-muted);margin-bottom:8px"></div>
                   ${field('glue-region', 'Region', glue.region, { placeholder: 'us-east-1' })}
                   ${field('glue-profile', 'AWS profile (optional)', glue.profile_name, { hint: 'Use a named profile, or the access keys below.' })}
                   ${field('glue-access-key', 'Access key ID', glue.access_key_id, { placeholder: 'AKIA…' })}
@@ -344,6 +350,66 @@ export function renderSfGlueConnectPage(container) {
     } catch (err) {
       store.set({ sfGlueGlueConnection: { success: false, error: err.message }, isTestingGlue: false });
       notify(err.message, { kind: 'error', title: 'Connection failed' });
+    }
+  });
+
+  // ── "Sign in with AWS SSO" (Identity Center device flow) ───────────────────
+  // start → open verification URL → poll until approved → pick account/role →
+  // short-lived role creds drop into the key fields → auto-test the connection.
+  container.querySelector('#glue-sso-login')?.addEventListener('click', async () => {
+    const status = container.querySelector('#glue-sso-status');
+    const say = (html) => { if (status) status.innerHTML = html; };
+    const region = container.querySelector('#glue-region').value.trim() || 'us-east-1';
+    const startUrl = prompt('Your AWS Identity Center start URL:',
+                            localStorage.getItem('qvf_aws_sso_start_url') || 'https://your-org.awsapps.com/start');
+    if (!startUrl) return;
+    localStorage.setItem('qvf_aws_sso_start_url', startUrl);
+    try {
+      say('starting sign-in…');
+      const s = await api.awsSsoStart({ startUrl, region });
+      window.open(s.verification_uri, '_blank');
+      say(`approve in the AWS tab (code <strong>${esc(s.user_code)}</strong>) — waiting…`);
+      const deadline = Date.now() + (s.expires_in || 600) * 1000;
+      let authorized = false;
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, (s.interval || 5) * 1000));
+        const p = await api.awsSsoPoll(s.session_id);
+        if (p.status === 'authorized') { authorized = true; break; }
+        say(`approve in the AWS tab (code <strong>${esc(s.user_code)}</strong>) — waiting…`);
+      }
+      if (!authorized) { say('⚠ sign-in window expired — try again.'); return; }
+
+      say('signed in ✓ — loading accounts…');
+      const acc = await api.awsSsoAccounts(s.session_id);
+      const accounts = acc.accounts || [];
+      if (!accounts.length) { say('⚠ no accounts available for this user.'); return; }
+      // pick account (auto when there's exactly one) and role (auto when one)
+      let acct = accounts[0];
+      if (accounts.length > 1) {
+        const menu = accounts.map((a, i) => `${i + 1}) ${a.account_name || a.account_id} (${a.account_id})`).join('\n');
+        const n = parseInt(prompt(`Choose an AWS account:\n${menu}\n\nEnter number:`, '1') || '1', 10);
+        acct = accounts[Math.min(Math.max(n, 1), accounts.length) - 1];
+      }
+      let role = (acct.roles || [])[0];
+      if ((acct.roles || []).length > 1) {
+        const menu = acct.roles.map((r, i) => `${i + 1}) ${r}`).join('\n');
+        const n = parseInt(prompt(`Choose a role in ${acct.account_id}:\n${menu}\n\nEnter number:`, '1') || '1', 10);
+        role = acct.roles[Math.min(Math.max(n, 1), acct.roles.length) - 1];
+      }
+      if (!role) { say('⚠ no roles available in that account.'); return; }
+
+      say(`getting credentials for ${esc(role)} @ ${esc(acct.account_id)}…`);
+      const cred = await api.awsSsoCredentials({ sessionId: s.session_id,
+                                                 accountId: acct.account_id, roleName: role });
+      container.querySelector('#glue-access-key').value = cred.access_key_id;
+      container.querySelector('#glue-secret-key').value = cred.secret_access_key;
+      container.querySelector('#glue-session-token').value = cred.session_token;
+      container.querySelector('#glue-profile').value = '';
+      const mins = cred.expiration_ms ? Math.max(1, Math.round((cred.expiration_ms - Date.now()) / 60000)) : 60;
+      say(`✓ signed in as <strong>${esc(role)}</strong> @ ${esc(acct.account_id)} — credentials valid ~${mins} min. Testing connection…`);
+      container.querySelector('#glue-test')?.click();
+    } catch (err) {
+      say(`⚠ ${esc(err.message)}`);
     }
   });
 

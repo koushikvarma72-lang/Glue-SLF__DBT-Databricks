@@ -588,5 +588,64 @@ class TestOperationalLineage(unittest.TestCase):
         self.assertIn(("tbl:widgets_raw", "job:step_beta"), data)
         self.assertIn(("job:step_beta", "tbl:widgets_final"), data)
 
+
+class TestAwsSsoAuth(unittest.TestCase):
+    def test_start_rejects_bad_url(self):
+        from backend.integrations.aws_sso_auth import start
+        out = start("not-a-url", "us-west-2")
+        self.assertFalse(out["success"])
+        self.assertIn("start URL", out["error"])
+
+    def test_poll_unknown_session(self):
+        from backend.integrations.aws_sso_auth import poll
+        out = poll("nope")
+        self.assertFalse(out["success"])
+
+    def test_credentials_requires_auth(self):
+        from backend.integrations.aws_sso_auth import credentials
+        out = credentials("nope", "123", "role")
+        self.assertFalse(out["success"])
+
+    def test_device_flow_with_stubbed_boto(self):
+        # Full happy path with boto3 clients stubbed — no AWS access needed.
+        import backend.integrations.aws_sso_auth as m
+
+        class OIDC:
+            def register_client(self, **k):
+                return {"clientId": "cid", "clientSecret": "sec"}
+            def start_device_authorization(self, **k):
+                return {"deviceCode": "dev", "userCode": "ABCD-EFGH", "interval": 1,
+                        "expiresIn": 600, "verificationUriComplete": "https://x/approve"}
+            def create_token(self, **k):
+                return {"accessToken": "tok", "expiresIn": 28800}
+
+        class SSO:
+            def get_paginator(self, name):
+                class P:
+                    def paginate(self_inner, **k):
+                        if name == "list_accounts":
+                            return [{"accountList": [{"accountId": "111", "accountName": "acct"}]}]
+                        return [{"roleList": [{"roleName": "Admin"}]}]
+                return P()
+            def get_role_credentials(self, **k):
+                return {"roleCredentials": {"accessKeyId": "AKIA", "secretAccessKey": "S",
+                                            "sessionToken": "T", "expiration": 1}}
+
+        orig_oidc, orig_sso = m._oidc, m._sso
+        m._oidc, m._sso = (lambda r: OIDC()), (lambda r: SSO())
+        try:
+            st = m.start("https://org.awsapps.com/start", "us-west-2")
+            self.assertTrue(st["success"])
+            self.assertEqual(st["user_code"], "ABCD-EFGH")
+            p = m.poll(st["session_id"])
+            self.assertEqual(p["status"], "authorized")
+            acc = m.accounts(st["session_id"])
+            self.assertEqual(acc["accounts"][0]["roles"], ["Admin"])
+            cred = m.credentials(st["session_id"], "111", "Admin")
+            self.assertTrue(cred["success"])
+            self.assertEqual(cred["access_key_id"], "AKIA")
+        finally:
+            m._oidc, m._sso = orig_oidc, orig_sso
+
 if __name__ == "__main__":
     unittest.main()

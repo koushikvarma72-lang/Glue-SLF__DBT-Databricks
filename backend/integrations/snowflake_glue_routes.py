@@ -317,6 +317,36 @@ def register_snowflake_glue_routes(app, call_ai=None):
         result = test_glue_connection(config)
         return jsonify(result), (200 if result.get('success') else 400)
 
+    # ── AWS SSO device-flow login ("Sign in with AWS") ──────────────────────
+    @app.route('/api/aws/sso/start', methods=['POST'])
+    def aws_sso_start():
+        from backend.integrations.aws_sso_auth import start as sso_start
+        data = request.get_json(silent=True) or {}
+        result = sso_start(data.get('start_url') or '', data.get('region') or '')
+        return jsonify(result), (200 if result.get('success') else 400)
+
+    @app.route('/api/aws/sso/poll', methods=['POST'])
+    def aws_sso_poll():
+        from backend.integrations.aws_sso_auth import poll as sso_poll
+        data = request.get_json(silent=True) or {}
+        result = sso_poll(data.get('session_id') or '')
+        return jsonify(result), (200 if result.get('success') else 400)
+
+    @app.route('/api/aws/sso/accounts', methods=['POST'])
+    def aws_sso_accounts():
+        from backend.integrations.aws_sso_auth import accounts as sso_accounts
+        data = request.get_json(silent=True) or {}
+        result = sso_accounts(data.get('session_id') or '')
+        return jsonify(result), (200 if result.get('success') else 400)
+
+    @app.route('/api/aws/sso/credentials', methods=['POST'])
+    def aws_sso_credentials():
+        from backend.integrations.aws_sso_auth import credentials as sso_credentials
+        data = request.get_json(silent=True) or {}
+        result = sso_credentials(data.get('session_id') or '',
+                                 data.get('account_id') or '', data.get('role_name') or '')
+        return jsonify(result), (200 if result.get('success') else 400)
+
     @app.route('/api/sfglue/databricks/test-connection', methods=['POST'])
     def sfglue_databricks_test():
         """Validate the Databricks destination: token (SCIM me), SQL warehouse

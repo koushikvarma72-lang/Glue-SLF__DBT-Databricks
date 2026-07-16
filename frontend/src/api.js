@@ -748,6 +748,44 @@ export const api = {
     return payload;
   },
 
+  // ── AWS SSO device-flow login ("Sign in with AWS") ─────────────────────────
+  async awsSsoStart({ startUrl, region } = {}) {
+    const res = await fetch(`${API_BASE}/aws/sso/start`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ start_url: startUrl, region }),
+    });
+    const p = await res.json();
+    if (!res.ok) throw new Error(p.error || 'SSO start failed');
+    return p;
+  },
+  async awsSsoPoll(sessionId) {
+    const res = await fetch(`${API_BASE}/aws/sso/poll`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId }),
+    });
+    const p = await res.json();
+    if (!res.ok) throw new Error(p.error || 'SSO poll failed');
+    return p;
+  },
+  async awsSsoAccounts(sessionId) {
+    const res = await fetch(`${API_BASE}/aws/sso/accounts`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId }),
+    });
+    const p = await res.json();
+    if (!res.ok) throw new Error(p.error || 'SSO accounts failed');
+    return p;
+  },
+  async awsSsoCredentials({ sessionId, accountId, roleName } = {}) {
+    const res = await fetch(`${API_BASE}/aws/sso/credentials`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, account_id: accountId, role_name: roleName }),
+    });
+    const p = await res.json();
+    if (!res.ok) throw new Error(p.error || 'SSO credentials failed');
+    return p;
+  },
+
   // Validate the Databricks destination (token, warehouse, catalog) — no SQL run.
   async testSfGlueDatabricks(destination) {
     const res = await fetch(`${API_BASE}/sfglue/databricks/test-connection`, {
