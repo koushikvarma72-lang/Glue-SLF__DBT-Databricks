@@ -30,6 +30,9 @@ function friendlyIdentity(id) {
   return parts.filter(Boolean).join(' · ');
 }
 
+// Which source panel is open (survives store re-renders, e.g. after a test).
+let activeConnectTab = 'snowflake';
+
 function statusBadge(conn) {
   if (!conn) return '';
   if (conn.success) {
@@ -72,27 +75,78 @@ export function renderSfGlueConnectPage(container) {
     ? 'Both tests failed — fix credentials and re-test to continue.'
     : 'Connect Snowflake and/or AWS Glue to continue.';
 
-  // A compact connection-status row for the sidebar Sources section.
-  const sourceStatusRow = (icon, name, ok, conn) => {
-    const dot = ok ? 'var(--success)' : (conn ? 'var(--error)' : 'var(--text-dim)');
-    const txt = ok ? 'Connected' : (conn ? (conn.error || 'Failed') : 'Not connected');
+  // ── Sidebar artwork — sources flowing into the lakehouse (theme colors only).
+  // Pure decoration: two source nodes converge through an animated pipeline into
+  // the medallion layers. Uses CSS vars so it follows the app theme exactly.
+  const sidebarArt = `
+    <style>
+      @keyframes sfglue-flow { to { stroke-dashoffset: -26; } }
+      @keyframes sfglue-pulse { 0%,100% { opacity:.35 } 50% { opacity:.9 } }
+    </style>
+    <svg viewBox="0 0 220 330" role="img" aria-label="Sources flowing into the Databricks lakehouse"
+         style="width:100%;max-width:210px;height:auto;display:block;margin:0 auto">
+      <!-- soft backdrop glow -->
+      <circle cx="110" cy="180" r="86" fill="var(--primary-glow)"/>
+      <!-- source nodes -->
+      <g>
+        <circle cx="58" cy="42" r="26" fill="var(--primary-soft)" stroke="var(--border)"/>
+        <text x="58" y="50" text-anchor="middle" font-size="22">❄️</text>
+        <text x="58" y="86" text-anchor="middle" font-size="10" fill="var(--text-muted)">Snowflake</text>
+        <circle cx="162" cy="42" r="26" fill="var(--primary-soft)" stroke="var(--border)"/>
+        <text x="162" y="50" text-anchor="middle" font-size="22">🪣</text>
+        <text x="162" y="86" text-anchor="middle" font-size="10" fill="var(--text-muted)">AWS Glue</text>
+      </g>
+      <!-- converging animated flows -->
+      <path d="M58 95 C 58 130, 100 130, 108 160" fill="none" stroke="var(--primary)" stroke-width="2"
+            stroke-dasharray="5 8" stroke-linecap="round" style="animation:sfglue-flow 1.6s linear infinite"/>
+      <path d="M162 95 C 162 130, 120 130, 112 160" fill="none" stroke="var(--accent)" stroke-width="2"
+            stroke-dasharray="5 8" stroke-linecap="round" style="animation:sfglue-flow 1.6s linear infinite"/>
+      <!-- pipeline node -->
+      <circle cx="110" cy="170" r="10" fill="var(--primary)" style="animation:sfglue-pulse 2.4s ease-in-out infinite"/>
+      <circle cx="110" cy="170" r="4.5" fill="#fff" opacity=".85"/>
+      <path d="M110 182 L110 208" stroke="var(--primary)" stroke-width="2" stroke-dasharray="5 8"
+            stroke-linecap="round" style="animation:sfglue-flow 1.6s linear infinite"/>
+      <!-- medallion lakehouse layers -->
+      <g font-size="10">
+        <rect x="45" y="212" width="130" height="26" rx="8" fill="var(--primary-soft)" stroke="var(--border)"/>
+        <text x="110" y="229" text-anchor="middle" fill="var(--text-secondary)">Bronze — raw</text>
+        <rect x="55" y="244" width="110" height="26" rx="8" fill="var(--accent-glow)" stroke="var(--border)"/>
+        <text x="110" y="261" text-anchor="middle" fill="var(--text-secondary)">Silver — curated</text>
+        <rect x="65" y="276" width="90" height="26" rx="8" fill="var(--primary-glow)" stroke="var(--primary)"/>
+        <text x="110" y="293" text-anchor="middle" fill="var(--text-primary)" font-weight="600">Gold — marts</text>
+      </g>
+      <text x="110" y="322" text-anchor="middle" font-size="10.5" fill="var(--text-dim)">Databricks / dbt lakehouse</text>
+    </svg>`;
+
+  // ── Source tiles (one panel visible at a time) ──────────────────────────────
+  const tiles = [
+    { id: 'snowflake', icon: '❄️', name: 'Snowflake', ok: sfOk, note: '' },
+    { id: 'glue',      icon: '🪣', name: 'AWS Glue',  ok: glueOk, note: '' },
+    ...(showPostgresConnect ? [{ id: 'postgres', icon: '🐘', name: 'PostgreSQL', ok: pgOk, note: '(Optional)' }] : []),
+  ];
+  if (!tiles.some(t => t.id === activeConnectTab)) activeConnectTab = 'snowflake';
+  const tileRow = tiles.map(t => {
+    const sel = t.id === activeConnectTab;
     return `
-      <div style="display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 0">
-        <span aria-hidden="true" style="font-size:14px">${icon}</span>
-        <span style="flex:1;color:var(--text-primary)">${name}</span>
-        <span role="status" style="display:inline-flex;align-items:center;gap:5px;color:${ok ? 'var(--success)' : 'var(--text-muted)'};font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(txt).replace(/"/g, '&quot;')}">
-          <span aria-hidden="true" style="width:7px;height:7px;border-radius:50%;background:${dot};flex-shrink:0"></span>${esc(txt)}
+      <button type="button" class="src-tile" data-tab="${t.id}" aria-pressed="${sel}"
+        style="position:relative;flex:1;min-width:150px;display:flex;flex-direction:column;align-items:center;gap:8px;padding:18px 12px;
+               border-radius:12px;border:1px solid ${sel ? 'var(--primary)' : 'var(--border)'};
+               background:${sel ? 'var(--primary-soft)' : 'transparent'};cursor:pointer;transition:border-color .15s, background .15s">
+        ${t.ok ? '<span aria-hidden="true" style="position:absolute;top:8px;right:10px;color:var(--success);font-size:13px">✓</span>' : ''}
+        <span aria-hidden="true" style="font-size:26px">${t.icon}</span>
+        <span style="font-size:13px;font-weight:600;color:var(--text-primary)">${t.name}
+          ${t.note ? `<span style="display:block;font-size:10px;font-weight:400;color:var(--text-muted)">${t.note}</span>` : ''}
         </span>
-      </div>`;
-  };
+      </button>`;
+  }).join('');
 
   container.innerHTML = `
     <div class="page" id="sfglue-connect-page">
       <!-- Sidebar -->
       <div class="sidebar animate-slide-left">
-        <div class="sidebar-section">
+        <div class="sidebar-section" style="text-align:center">
           <div class="sidebar-section-title">Migration</div>
-          <div style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text-primary);padding:2px 0">
+          <div style="display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:600;color:var(--text-primary);padding:2px 0;flex-wrap:wrap">
             <span aria-hidden="true">❄️🪣</span>
             <span>Snowflake + Glue</span>
             <span style="color:var(--text-dim)">→</span>
@@ -101,21 +155,18 @@ export function renderSfGlueConnectPage(container) {
           </div>
         </div>
 
-        <div class="sidebar-section">
-          <div class="sidebar-section-title">Sources</div>
-          ${sourceStatusRow('❄️', 'Snowflake', sfOk, sfConn)}
-          ${sourceStatusRow('🪣', 'AWS Glue', glueOk, glueConn)}
-        </div>
-
-        <div class="sidebar-content">
-          <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
-            Connect at least one source to continue. We read Snowflake tables/views and the
-            Glue Data Catalog + ETL scripts to build a full source→Snowflake lineage and flag
-            duplication before migrating.
-          </div>
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:18px 16px;min-height:0">
+          ${sidebarArt}
         </div>
 
         <div class="sidebar-section" style="border-top:1px solid var(--border);border-bottom:none;margin-top:auto;padding-bottom:16px">
+          <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px">
+            <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Need help?</div>
+            <div style="font-size:11.5px;color:var(--text-muted);line-height:1.55">
+              Connect at least one source to continue. We read Snowflake tables/views and the Glue
+              Data Catalog + ETL scripts to build the full source→Snowflake lineage.
+            </div>
+          </div>
           <button class="btn btn-outline btn-block" id="sfglue-exit" style="color:var(--text-dim);border-color:var(--border);width:100%;font-size:12px">
             ← Back to home
           </button>
@@ -132,98 +183,115 @@ export function renderSfGlueConnectPage(container) {
               Data Catalog + ETL job scripts to build a full source→Snowflake lineage and flag duplication before migrating to Databricks/DBT.
             </p>
 
-            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:20px">
-              <!-- Snowflake -->
-              <div class="card">
-                <div class="card-header">
-                  <div class="card-title"><span aria-hidden="true">❄️</span> Snowflake</div>
-                  ${sfOk ? '<span class="badge badge-success" role="status" style="margin-left:auto;font-size:11px"><span aria-hidden="true">✓</span> Connected</span>' : ''}
+            <!-- Source tiles — pick which connector to configure -->
+            <div style="display:flex;gap:14px;margin-bottom:20px;flex-wrap:wrap">${tileRow}</div>
+
+            <!-- Snowflake panel -->
+            <div class="card connect-panel" data-panel="snowflake" style="${activeConnectTab === 'snowflake' ? '' : 'display:none'}">
+              <div class="card-header">
+                <div class="card-title"><span aria-hidden="true">❄️</span> Snowflake connection details</div>
+                ${sfOk ? '<span class="badge badge-success" role="status" style="margin-left:auto;font-size:11px"><span aria-hidden="true">✓</span> Connected</span>' : ''}
+              </div>
+              <div class="card-body">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                  ${field('sf-account', 'Account identifier', sf.account, { placeholder: 'ab12345.us-east-1' })}
+                  ${field('sf-user', 'Username', sf.user, { placeholder: 'SVC_MIGRATION' })}
                 </div>
-                <div class="card-body">
-                  ${field('sf-account', 'Account', sf.account, { placeholder: 'ab12345.us-east-1' })}
-                  ${field('sf-user', 'User', sf.user, { placeholder: 'SVC_MIGRATION' })}
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
                   ${field('sf-password', 'Password', sf.password, { type: 'password', placeholder: sf.password ? '•••••• (saved)' : '' })}
+                  ${field('sf-role', 'Role (optional)', sf.role, { placeholder: 'SYSADMIN' })}
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                  ${sfWarehouses.length
+                    ? selectField('sf-warehouse', 'Warehouse', sf.warehouse, sfWarehouses, { hint: `${sfWarehouses.length} loaded` })
+                    : field('sf-warehouse', 'Warehouse', sf.warehouse, { placeholder: 'WH_XS' })}
                   ${sfDatabases.length
                     ? selectField('sf-database', 'Database', sf.database, sfDatabases, { hint: `${sfDatabases.length} loaded` })
                     : field('sf-database', 'Database', sf.database, { placeholder: 'Connect first to load databases' })}
-                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-                    ${sfWarehouses.length
-                      ? selectField('sf-warehouse', 'Warehouse', sf.warehouse, sfWarehouses, { hint: `${sfWarehouses.length} loaded` })
-                      : field('sf-warehouse', 'Warehouse', sf.warehouse, { placeholder: 'WH_XS' })}
-                    ${field('sf-role', 'Role (optional)', sf.role, { placeholder: 'SYSADMIN' })}
-                  </div>
-                  ${loadingSchemas
-                    ? field('sf-schema', 'Schema (optional)', '', { placeholder: 'Loading schemas…', hint: 'Loading schemas…' })
-                    : sfSchemas.length
-                    ? selectField('sf-schema', 'Schema (optional)', sf.schema, sfSchemas, { blankLabel: '(all schemas)', hint: `${sfSchemas.length} schema(s) — pick one (recommended for large DBs) or all` })
-                    : field('sf-schema', 'Schema (optional)', sf.schema, { hint: schemasError ? 'Could not load schemas — type one manually.' : 'Blank = all schemas. Select a database to load its schemas.' })}
-                  <button class="btn btn-primary" id="sf-test" ${state.isTestingSnowflake ? 'disabled' : ''} style="width:100%;margin-top:8px;justify-content:center">
-                    ${state.isTestingSnowflake ? 'Testing…' : '<span aria-hidden="true">🔌</span> Test Snowflake connection'}
+                </div>
+                ${loadingSchemas
+                  ? field('sf-schema', 'Schema (optional)', '', { placeholder: 'Loading schemas…', hint: 'Loading schemas…' })
+                  : sfSchemas.length
+                  ? selectField('sf-schema', 'Schema (optional)', sf.schema, sfSchemas, { blankLabel: '(all schemas)', hint: `${sfSchemas.length} schema(s) — pick one (recommended for large DBs) or all` })
+                  : field('sf-schema', 'Schema (optional)', sf.schema, { hint: schemasError ? 'Could not load schemas — type one manually.' : 'Blank = all schemas. Select a database to load its schemas.' })}
+                <div style="display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap">
+                  <button class="btn btn-primary" id="sf-test" ${state.isTestingSnowflake ? 'disabled' : ''}>
+                    ${state.isTestingSnowflake ? 'Testing…' : '<span aria-hidden="true">🔌</span> Test connection'}
                   </button>
-                  ${statusBadge(sfConn)}
+                  <div style="flex:1;min-width:0">${statusBadge(sfConn)}</div>
+                  <button class="btn btn-secondary" data-next-tab="glue">Next: AWS Glue →</button>
                 </div>
               </div>
+            </div>
 
-              <!-- AWS Glue -->
-              <div class="card">
-                <div class="card-header">
-                  <div class="card-title"><span aria-hidden="true">🪣</span> AWS Glue</div>
-                  ${glueOk ? '<span class="badge badge-success" role="status" style="margin-left:auto;font-size:11px"><span aria-hidden="true">✓</span> Connected</span>' : ''}
-                </div>
-                <div class="card-body">
+            <!-- AWS Glue panel -->
+            <div class="card connect-panel" data-panel="glue" style="${activeConnectTab === 'glue' ? '' : 'display:none'}">
+              <div class="card-header">
+                <div class="card-title"><span aria-hidden="true">🪣</span> AWS Glue connection details</div>
+                ${glueOk ? '<span class="badge badge-success" role="status" style="margin-left:auto;font-size:11px"><span aria-hidden="true">✓</span> Connected</span>' : ''}
+              </div>
+              <div class="card-body">
                   <!-- "Sign in with AWS" — Identity Center device flow; fills the key
                        fields below with short-lived role credentials. -->
                   <button class="btn btn-secondary" id="glue-sso-login" style="width:100%;justify-content:center;margin-bottom:4px">
                     <span aria-hidden="true">🔐</span> Sign in with AWS SSO
                   </button>
                   <div id="glue-sso-status" role="status" style="font-size:11.5px;color:var(--text-muted);margin-bottom:8px"></div>
-                  ${field('glue-region', 'Region', glue.region, { placeholder: 'us-east-1' })}
-                  ${field('glue-profile', 'AWS profile (optional)', glue.profile_name, { hint: 'Use a named profile, or the access keys below.' })}
-                  ${field('glue-access-key', 'Access key ID', glue.access_key_id, { placeholder: 'AKIA…' })}
-                  ${field('glue-secret-key', 'Secret access key', glue.secret_access_key, { type: 'password', placeholder: glue.secret_access_key ? '•••••• (saved)' : '' })}
-                  ${field('glue-session-token', 'Session token (optional)', glue.session_token, { type: 'password', placeholder: glue.session_token ? '•••••• (saved)' : '' })}
-                  ${field('glue-catalog-id', 'Catalog ID (optional)', glue.catalog_id, { hint: 'AWS account id of the Glue catalog, if not the caller account.' })}
-                  <button class="btn btn-primary" id="glue-test" ${state.isTestingGlue ? 'disabled' : ''} style="width:100%;margin-top:8px;justify-content:center">
-                    ${state.isTestingGlue ? 'Testing…' : '<span aria-hidden="true">🔌</span> Test AWS Glue connection'}
-                  </button>
-                  ${statusBadge(glueConn)}
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                    ${field('glue-region', 'Region', glue.region, { placeholder: 'us-east-1' })}
+                    ${field('glue-profile', 'AWS profile (optional)', glue.profile_name, { hint: 'Use a named profile, or the access keys below.' })}
+                  </div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                    ${field('glue-access-key', 'Access key ID', glue.access_key_id, { placeholder: 'AKIA…' })}
+                    ${field('glue-secret-key', 'Secret access key', glue.secret_access_key, { type: 'password', placeholder: glue.secret_access_key ? '•••••• (saved)' : '' })}
+                  </div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                    ${field('glue-session-token', 'Session token (optional)', glue.session_token, { type: 'password', placeholder: glue.session_token ? '•••••• (saved)' : '' })}
+                    ${field('glue-catalog-id', 'Catalog ID (optional)', glue.catalog_id, { hint: 'AWS account id of the Glue catalog, if not the caller account.' })}
+                  </div>
+                  <div style="display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap">
+                    <button class="btn btn-primary" id="glue-test" ${state.isTestingGlue ? 'disabled' : ''}>
+                      ${state.isTestingGlue ? 'Testing…' : '<span aria-hidden="true">🔌</span> Test connection'}
+                    </button>
+                    <div style="flex:1;min-width:0">${statusBadge(glueConn)}</div>
+                    ${showPostgresConnect ? '<button class="btn btn-secondary" data-next-tab="postgres">Next: PostgreSQL →</button>' : ''}
+                  </div>
                   ${glueOk ? `
                   <div style="display:flex;gap:8px;align-items:flex-end;margin-top:10px">
                     <div style="flex:1">${selectField('glue-bucket', 'Pipeline bucket', state.sfGlueSelectedBucket, state.sfGlueBuckets || [], { hint: 'The S3 bucket the reference pipeline should use (zones + repoint target).', blankLabel: state.sfGlueBuckets ? '\u2014 choose bucket \u2014' : 'loading\u2026' })}</div>
                     <button class="btn btn-secondary" id="glue-buckets-refresh" title="Reload bucket list" style="margin-bottom:10px;padding:6px 10px">\u21bb</button>
                   </div>` : ''}
-                </div>
               </div>
-
             </div>
 
             ${showPostgresConnect ? `
-            <!-- Postgres (external origin) — collapsible optional connector at the bottom.
-                 Field IDs / handlers are unchanged; only the presentation moved. -->
-            <details class="pg-dropdown" ${pgOk ? 'open' : ''}>
-              <summary>
-                <span aria-hidden="true" style="font-size:16px">🐘</span>
-                <span style="flex:1">Postgres <span style="font-size:11px;color:var(--text-muted);font-weight:400">(external source — optional)</span></span>
-                ${pgOk ? '<span class="badge badge-success" role="status" style="font-size:11px"><span aria-hidden="true">✓</span> Connected</span>' : ''}
-                <span class="pg-chev" aria-hidden="true">▾</span>
-              </summary>
-              <div class="pg-dropdown-body">
+            <!-- Postgres panel (external origin — optional). Field IDs / handlers unchanged. -->
+            <div class="card connect-panel" data-panel="postgres" style="${activeConnectTab === 'postgres' ? '' : 'display:none'}">
+              <div class="card-header">
+                <div class="card-title"><span aria-hidden="true">🐘</span> PostgreSQL connection details <span style="font-size:11px;color:var(--text-muted);font-weight:400">(external source — optional)</span></div>
+                ${pgOk ? '<span class="badge badge-success" role="status" style="margin-left:auto;font-size:11px"><span aria-hidden="true">✓</span> Connected</span>' : ''}
+              </div>
+              <div class="card-body">
                 <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px">
                   ${field('pg-host', 'Host', pg.host, { placeholder: 'db.internal.example.com' })}
                   ${field('pg-port', 'Port', pg.port || '5432', { placeholder: '5432' })}
                 </div>
-                ${field('pg-database', 'Database', pg.database, { placeholder: 'app_prod' })}
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                  ${field('pg-database', 'Database', pg.database, { placeholder: 'app_prod' })}
+                  ${field('pg-schema', 'Schema (optional)', pg.schema, { hint: 'Blank = all non-system schemas.' })}
+                </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
                   ${field('pg-user', 'User', pg.user, { placeholder: 'readonly' })}
                   ${field('pg-password', 'Password', pg.password, { type: 'password', placeholder: pg.password ? '•••••• (saved)' : '' })}
                 </div>
-                ${field('pg-schema', 'Schema (optional)', pg.schema, { hint: 'Blank = all non-system schemas.' })}
-                <button class="btn btn-primary" id="pg-test" ${state.isTestingPostgres ? 'disabled' : ''} style="width:100%;margin-top:8px;justify-content:center">
-                  ${state.isTestingPostgres ? 'Testing…' : '<span aria-hidden="true">🔌</span> Test Postgres connection'}
-                </button>
-                ${statusBadge(pgConn)}
+                <div style="display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap">
+                  <button class="btn btn-primary" id="pg-test" ${state.isTestingPostgres ? 'disabled' : ''}>
+                    ${state.isTestingPostgres ? 'Testing…' : '<span aria-hidden="true">🔌</span> Test connection'}
+                  </button>
+                  <div style="flex:1;min-width:0">${statusBadge(pgConn)}</div>
+                </div>
               </div>
-            </details>` : ''}
+            </div>` : ''}
 
           </div>
         </div>
@@ -273,6 +341,25 @@ export function renderSfGlueConnectPage(container) {
   container.querySelector('#sfglue-exit')?.addEventListener('click', () => {
     store.navigate('sfglue-home');
   });
+
+  // ── Tile / panel switching (no re-render — panels stay mounted so field
+  //    values and handlers survive; only visibility flips) ──────────────────────
+  const selectTab = (tab) => {
+    activeConnectTab = tab;
+    container.querySelectorAll('.connect-panel').forEach((p) => {
+      p.style.display = p.dataset.panel === tab ? '' : 'none';
+    });
+    container.querySelectorAll('.src-tile').forEach((t) => {
+      const sel = t.dataset.tab === tab;
+      t.setAttribute('aria-pressed', String(sel));
+      t.style.borderColor = sel ? 'var(--primary)' : 'var(--border)';
+      t.style.background = sel ? 'var(--primary-soft)' : 'transparent';
+    });
+  };
+  container.querySelectorAll('.src-tile').forEach((t) =>
+    t.addEventListener('click', () => selectTab(t.dataset.tab)));
+  container.querySelectorAll('[data-next-tab]').forEach((b) =>
+    b.addEventListener('click', () => selectTab(b.dataset.nextTab)));
 
   // Load the schemas of a database so the Schema field can be a picker.
   const loadSchemas = async (database) => {

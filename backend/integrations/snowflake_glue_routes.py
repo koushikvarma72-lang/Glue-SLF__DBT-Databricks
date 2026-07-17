@@ -516,6 +516,7 @@ def register_snowflake_glue_routes(app, call_ai=None):
                 "name": dag['name'], "dag": dag, "job": built['job'],
                 "yaml": job_to_dab_yaml(built['job'], dag['name']),
                 "placeholders": built['placeholders'], "warnings": built['warnings'],
+                "source": "airflow",
             })
         if not jobs_out:
             return jsonify({"success": False, "error": "No DAGs found/parsed."}), 404

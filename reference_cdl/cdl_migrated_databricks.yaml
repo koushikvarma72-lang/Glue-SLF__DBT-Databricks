@@ -1,0 +1,65 @@
+cdl_migrated_databricks:
+  default_args:
+    owner: cdl
+    start_date: 2024-01-01
+    retries: 0
+  schedule: "0 2 * * *"
+  catchup: false
+  max_active_runs: 1
+  description: "Migrated CDL pipeline on Databricks + dbt, orchestrated by Airflow"
+  tasks:
+    batch_open:
+      operator: airflow.providers.databricks.operators.databricks.DatabricksSubmitRunOperator
+      databricks_conn_id: "databricks_default"
+      notebook_task:
+        notebook_path: /Shared/sfglue/src/notebooks/fw_batch_open
+    ingest_1:
+      operator: airflow.providers.databricks.operators.databricks.DatabricksSubmitRunOperator
+      databricks_conn_id: "databricks_default"
+      notebook_task:
+        notebook_path: /Shared/sfglue/src/notebooks/fw_file_audit
+      dependencies: [batch_open]
+    ingest_2:
+      operator: airflow.providers.databricks.operators.databricks.DatabricksSubmitRunOperator
+      databricks_conn_id: "databricks_default"
+      notebook_task:
+        notebook_path: /Shared/sfglue/src/notebooks/landing_to_raw
+      dependencies: [ingest_1]
+    ingest_3:
+      operator: airflow.providers.databricks.operators.databricks.DatabricksSubmitRunOperator
+      databricks_conn_id: "databricks_default"
+      notebook_task:
+        notebook_path: /Shared/sfglue/src/notebooks/load_confiq
+      dependencies: [ingest_2]
+    ingest_4:
+      operator: airflow.providers.databricks.operators.databricks.DatabricksSubmitRunOperator
+      databricks_conn_id: "databricks_default"
+      notebook_task:
+        notebook_path: /Shared/sfglue/src/notebooks/postgres_bronze_ingest
+      dependencies: [ingest_3]
+    ingest_5:
+      operator: airflow.providers.databricks.operators.databricks.DatabricksSubmitRunOperator
+      databricks_conn_id: "databricks_default"
+      notebook_task:
+        notebook_path: /Shared/sfglue/src/notebooks/raw_to_curated
+      dependencies: [ingest_4]
+    dbt_staging:
+      operator: airflow.providers.databricks.operators.databricks.DatabricksSubmitRunOperator
+      databricks_conn_id: "databricks_default"
+      json: {"run_name": "cdl_migrated_databricks.dbt_staging", "tasks": [{"task_key": "dbt_staging", "dbt_task": {"project_directory": "/Shared/sfglue/dbt", "commands": ["dbt deps", "dbt build --select staging"], "catalog": "workspace", "warehouse_id": "66b30eb900bcd97a", "source": "WORKSPACE"}, "environment_key": "dbt_env"}], "environments": [{"environment_key": "dbt_env", "spec": {"client": "1", "dependencies": ["dbt-databricks"]}}]}
+      dependencies: [ingest_5]
+    dbt_marts:
+      operator: airflow.providers.databricks.operators.databricks.DatabricksSubmitRunOperator
+      databricks_conn_id: "databricks_default"
+      json: {"run_name": "cdl_migrated_databricks.dbt_marts", "tasks": [{"task_key": "dbt_marts", "dbt_task": {"project_directory": "/Shared/sfglue/dbt", "commands": ["dbt deps", "dbt build --select marts"], "catalog": "workspace", "warehouse_id": "66b30eb900bcd97a", "source": "WORKSPACE"}, "environment_key": "dbt_env"}], "environments": [{"environment_key": "dbt_env", "spec": {"client": "1", "dependencies": ["dbt-databricks"]}}]}
+      dependencies: [dbt_staging]
+    batch_close:
+      operator: airflow.providers.databricks.operators.databricks.DatabricksSubmitRunOperator
+      databricks_conn_id: "databricks_default"
+      notebook_task:
+        notebook_path: /Shared/sfglue/src/notebooks/fw_batch_close
+      dependencies: [dbt_marts]
+    notify:
+      operator: airflow.operators.bash.BashOperator
+      bash_command: "echo cdl_migrated_databricks completed"
+      dependencies: [batch_close]

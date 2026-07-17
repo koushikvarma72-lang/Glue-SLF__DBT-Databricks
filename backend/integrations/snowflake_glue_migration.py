@@ -724,6 +724,22 @@ _TODO_RULES = (
     "UDF calls), NONDETERMINISTIC (random or current-time-dependent branching), ASSUMPTION "
     "(ordering or schema you cannot confirm), MISSING-SCHEMA (a referenced column not in the "
     "provided schema). A flagged gap is correct; a confident wrong guess is not."
+    # Fidelity rules — added after graded runs showed these exact defect classes:
+    " FIDELITY RULES (violations are graded as critical errors):"
+    " (1) NEVER drop derivation logic present in the source. Every CASE / decode / mapping "
+    "expression (e.g. CASE WHEN code='MSL' THEN 'Medical Affairs' ELSE 'Field Sales' END) must "
+    "be carried through — adapted to the available column names — NOT replaced by a literal "
+    "filter or constant. If its input column is missing, KEEP the expression structure over the "
+    "closest column and flag TODO[MISSING-SCHEMA] beside it."
+    " (2) NEVER emit CAST(NULL AS ...) stubs for measures the source computes when they are "
+    "derivable from the available tables (counts/sums/avgs via a join + GROUP BY on a sibling "
+    "table are DERIVABLE — compute them). Stub with NULL + TODO[MISSING-SCHEMA] only when the "
+    "measure is truly underivable from every table in scope."
+    " (3) DIMENSION-JOIN DISCIPLINE: never fake a missing dimension with a self-join or an "
+    "identity join (joining a table back to itself on its own key changes nothing and lies "
+    "about grain). Either ref() the corresponding dim model, derive date attributes directly "
+    "from the date column (YEAR()/QUARTER()/DATE_FORMAT()), or flag TODO[MISSING-SCHEMA]. "
+    "A rewritten join must preserve the source view's row grain exactly."
 )
 # Marks in deterministic (no-AI) scaffolds that mean "this was NOT translated, a human must
 # act" — surfaced in the review queue under the NEEDS-AI tag so an un-converted passthrough

@@ -488,8 +488,12 @@ class TestTargetAirflow(unittest.TestCase):
         for tid in ("wait_for_files", "batch_open", "dbt_staging", "dbt_intermediate",
                     "dbt_marts", "batch_close", "notify"):
             self.assertIn(tid, t)
-        self.assertEqual(t["dbt_marts"]["dbt_task"]["warehouse_id"], "wh123")
-        self.assertIn("dbt build --select marts", t["dbt_marts"]["dbt_task"]["commands"])
+        # workspace mode submits via raw json (operator refuses dbt_task w/o git_source)
+        marts_task = t["dbt_marts"]["json"]["tasks"][0]
+        self.assertEqual(marts_task["dbt_task"]["warehouse_id"], "wh123")
+        self.assertIn("dbt build --select marts", marts_task["dbt_task"]["commands"])
+        self.assertEqual(t["dbt_marts"]["json"]["environments"][0]["spec"]["dependencies"],
+                         ["dbt-databricks"])
         self.assertEqual(t["dbt_marts"]["dependencies"], ["dbt_intermediate"])
         self.assertEqual(t["dbt_intermediate"]["dependencies"], ["dbt_staging"])
         reparsed = parse_dag_factory_yaml("x.yaml", out["yaml"])[0]
@@ -646,6 +650,19 @@ class TestAwsSsoAuth(unittest.TestCase):
             self.assertEqual(cred["access_key_id"], "AKIA")
         finally:
             m._oidc, m._sso = orig_oidc, orig_sso
+
+
+class TestFidelityRules(unittest.TestCase):
+    """The conversion prompts must carry the fidelity rules added after graded runs
+    surfaced three defect classes (dropped CASE logic, NULL-stubbed aggregates,
+    self-join stand-ins for missing dimensions)."""
+
+    def test_rules_present_in_shared_prompt_block(self):
+        from backend.integrations.snowflake_glue_migration import _TODO_RULES
+        self.assertIn("NEVER drop derivation logic", _TODO_RULES)
+        self.assertIn("CAST(NULL AS ...) stubs", _TODO_RULES)
+        self.assertIn("DIMENSION-JOIN DISCIPLINE", _TODO_RULES)
+        self.assertIn("preserve the source view's row grain", _TODO_RULES)
 
 if __name__ == "__main__":
     unittest.main()

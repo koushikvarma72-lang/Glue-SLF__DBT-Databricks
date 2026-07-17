@@ -24,6 +24,7 @@ Deterministic, pure (the REST fetch is the only I/O), unit-tested.
 from __future__ import annotations
 
 import ast
+import json
 import logging
 import re
 
@@ -417,18 +418,38 @@ def emit_target_airflow_yaml(conversion: dict, destination: dict, *,
             "warehouse_id": wh,
             "source": "GIT" if dbt_source == "git" else "WORKSPACE",
         }
-        op = {
+        if dbt_source == "git":
+            # named dbt_task + git_source satisfies the operator's validation
+            return {
+                "operator": "airflow.providers.databricks.operators.databricks.DatabricksSubmitRunOperator",
+                "databricks_conn_id": databricks_conn_id,
+                "dbt_task": dbt_task,
+                "git_source": {
+                    "git_url": git_url or "<GIT_REPO_URL>",
+                    "git_provider": git_provider,
+                    "git_branch": git_branch,
+                },
+            }
+        # workspace mode: DatabricksSubmitRunOperator rejects a named dbt_task without
+        # git_source (its validation predates workspace-sourced dbt projects), so pass
+        # the raw runs/submit payload via ``json`` instead — a multi-task submit with a
+        # serverless environment carrying dbt-databricks. Same API, no operator veto.
+        return {
             "operator": "airflow.providers.databricks.operators.databricks.DatabricksSubmitRunOperator",
             "databricks_conn_id": databricks_conn_id,
-            "dbt_task": dbt_task,
+            "json": {
+                "run_name": f"{dag_id}.dbt_{layer}",
+                "tasks": [{
+                    "task_key": f"dbt_{layer}",
+                    "dbt_task": dbt_task,
+                    "environment_key": "dbt_env",
+                }],
+                "environments": [{
+                    "environment_key": "dbt_env",
+                    "spec": {"client": "1", "dependencies": ["dbt-databricks"]},
+                }],
+            },
         }
-        if dbt_source == "git":
-            op["git_source"] = {
-                "git_url": git_url or "<GIT_REPO_URL>",
-                "git_provider": git_provider,
-                "git_branch": git_branch,
-            }
-        return op
 
     def _dbt_cloud_op():
         return {
@@ -488,6 +509,11 @@ def emit_target_airflow_yaml(conversion: dict, destination: dict, *,
     for tid, spec, deps in tasks:
         L.append(f"    {tid}:")
         for k, v in spec.items():
+            if isinstance(v, dict) and any(isinstance(x, (dict, list)) for x in v.values()):
+                # deep payloads (e.g. a raw runs/submit ``json``) — emit as a JSON
+                # flow mapping, which is valid YAML and survives any nesting depth
+                L.append(f"      {k}: {json.dumps(v)}")
+                continue
             if isinstance(v, dict):
                 L.append(f"      {k}:")
                 for kk, vv in v.items():
