@@ -13,7 +13,8 @@
  */
 import { api } from '../api.js';
 import { store } from '../store.js';
-import { field, esc } from '../components/ui.js';
+import { esc } from '../components/ui.js';
+import { destinationForm, persistDestination, wireDestination } from '../components/destination.js';
 import { notify } from '../components/notify.js';
 import { promptModal } from '../components/modal.js';
 import { reconcilePairs } from './snowflake-glue-dbt-agent.js';
@@ -107,16 +108,7 @@ export function renderSfGlueRunPage(container) {
         <div class="card" style="margin-bottom:16px">
           <div class="card-header"><div class="card-title">Databricks destination</div></div>
           <div class="card-body">
-            ${field('run-dbx-url', 'Workspace URL', dest.workspace_url, { placeholder: 'https://dbc-xxxx.cloud.databricks.com' })}
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-              ${field('run-dbx-token', 'Access token', dest.token, { type: 'password', placeholder: dest.token ? '•••••• (saved)' : 'dapi…' })}
-              ${field('run-dbx-warehouse', 'SQL Warehouse ID', dest.sql_warehouse_id, {})}
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
-              ${field('run-dbx-catalog', 'Catalog', dest.catalog, { placeholder: 'lakehouse' })}
-              ${field('run-dbx-bronze', 'Bronze schema', dest.bronze_schema, { placeholder: 'bronze' })}
-              ${field('run-dbx-source-catalog', 'Source catalog (opt)', dest.source_catalog, { placeholder: 'raw' })}
-            </div>
+            ${destinationForm(dest)}
             <div style="display:flex;align-items:center;gap:10px;margin-top:10px">
               <button class="btn btn-secondary" id="run-dbx-test">Test Databricks connection</button>
               <span id="run-dbx-test-result" style="font-size:12px;color:var(--text-muted)"></span>
@@ -156,28 +148,9 @@ export function renderSfGlueRunPage(container) {
       </div>
     </div>`;
 
-  // Persist Databricks destination edits (direct mutation, no re-render).
-  const readDest = () => ({
-    workspace_url: container.querySelector('#run-dbx-url').value.trim(),
-    token: container.querySelector('#run-dbx-token').value || (store.get().sfGlueDestination || {}).token || '',
-    sql_warehouse_id: container.querySelector('#run-dbx-warehouse').value.trim(),
-    catalog: container.querySelector('#run-dbx-catalog').value.trim() || 'lakehouse',
-    bronze_schema: container.querySelector('#run-dbx-bronze').value.trim() || 'bronze',
-    silver_schema: (store.get().sfGlueDestination || {}).silver_schema || 'silver',
-    gold_schema: (store.get().sfGlueDestination || {}).gold_schema || 'gold',
-    source_catalog: container.querySelector('#run-dbx-source-catalog').value.trim(),
-    source_schema: (store.get().sfGlueDestination || {}).source_schema || '',
-  });
-  // Direct mutation skips store.set()'s persistence hook, so ALSO write the
-  // localStorage copy here — otherwise the Databricks values vanish on reload.
-  const saveDest = () => {
-    const d = readDest();
-    store.get().sfGlueDestination = d;
-    try { localStorage.setItem('qvf_sfglue_destination', JSON.stringify(d)); } catch (_) { /* non-fatal */ }
-    return d;
-  };
-  container.querySelectorAll('#run-dbx-url,#run-dbx-token,#run-dbx-warehouse,#run-dbx-catalog,#run-dbx-bronze,#run-dbx-source-catalog')
-    .forEach(inp => inp.addEventListener('change', saveDest));
+  // Shared destination form (same component + persistence as the Databricks Agent page).
+  const saveDest = () => persistDestination(container);
+  wireDestination(container);
 
   // Databricks connection test (token + warehouse + catalog, via REST — no SQL).
   container.querySelector('#run-dbx-test')?.addEventListener('click', async () => {
@@ -226,17 +199,7 @@ function guardBeforeStart(container) {
   const err = container.querySelector('#run-error');
   if (err) err.textContent = '';
   if (!snowflake && !glue) { if (err) err.textContent = 'Connect a source first.'; return false; }
-  store.get().sfGlueDestination = {
-    ...(store.get().sfGlueDestination || {}),
-    workspace_url: container.querySelector('#run-dbx-url').value.trim(),
-    token: container.querySelector('#run-dbx-token').value || (store.get().sfGlueDestination || {}).token || '',
-    sql_warehouse_id: container.querySelector('#run-dbx-warehouse').value.trim(),
-    catalog: container.querySelector('#run-dbx-catalog').value.trim() || 'lakehouse',
-    bronze_schema: container.querySelector('#run-dbx-bronze').value.trim() || 'bronze',
-    source_catalog: container.querySelector('#run-dbx-source-catalog').value.trim(),
-  };
-  const d = store.get().sfGlueDestination;
-  try { localStorage.setItem('qvf_sfglue_destination', JSON.stringify(d)); } catch (_) { /* non-fatal */ }
+  const d = persistDestination(container);
   if (!d.workspace_url || !d.sql_warehouse_id) {
     if (err) err.textContent = 'Set the Databricks Workspace URL and SQL Warehouse ID first (needed to build).';
     return false;

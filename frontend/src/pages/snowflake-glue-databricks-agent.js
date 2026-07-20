@@ -10,7 +10,8 @@
  */
 import { api } from '../api.js';
 import { store } from '../store.js';
-import { esc, artifactGroup, wireArtifacts, field as df } from '../components/ui.js';
+import { esc, artifactGroup, wireArtifacts } from '../components/ui.js';
+import { destinationForm, readDestination, wireDestination } from '../components/destination.js';
 import { notify } from '../components/notify.js';
 import { confirmModal, promptModal } from '../components/modal.js';
 
@@ -147,17 +148,7 @@ export function renderSfGlueDatabricksAgentPage(container) {
             <strong class="sfg-panel-title">Databricks destination${dest.catalog ? ` — ${esc(dest.catalog)}` : ''}</strong>
             <button class="btn btn-secondary sfg-spring" id="dbx-precheck" ${busyPre ? 'disabled' : ''} style="padding:4px 10px;font-size:12px">${busyPre ? 'Checking…' : 'Check Databricks'}</button>
           </div>
-          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
-            ${df('dbx-dest-url', 'Workspace URL', dest.workspace_url, { placeholder: 'https://dbc-xxxx.cloud.databricks.com' })}
-            ${df('dbx-dest-token', 'Access token', dest.token, { type: 'password', placeholder: dest.token ? '•••••• (saved)' : 'dapi…' })}
-            ${df('dbx-dest-warehouse', 'SQL Warehouse ID', dest.sql_warehouse_id, {})}
-            ${df('dbx-dest-catalog', 'Catalog', dest.catalog, { placeholder: 'lakehouse' })}
-            ${df('dbx-dest-bronze', 'Bronze schema', dest.bronze_schema, { placeholder: 'bronze' })}
-            ${df('dbx-dest-silver', 'Silver schema', dest.silver_schema, { placeholder: 'silver' })}
-            ${df('dbx-dest-gold', 'Gold schema', dest.gold_schema, { placeholder: 'gold' })}
-            ${df('dbx-dest-source-catalog', 'Source catalog', dest.source_catalog, { placeholder: 'raw_catalog' })}
-            ${df('dbx-dest-source-schema', 'Source schema', dest.source_schema, { placeholder: 'raw' })}
-          </div>
+          ${destinationForm(dest)}
           <div class="sfg-hint" style="margin-top:6px">
             Source catalog/schema = the raw landing location <code>source('bronze', …)</code> reads from; blank uses Catalog/Bronze above.
           </div>
@@ -240,25 +231,12 @@ export function renderSfGlueDatabricksAgentPage(container) {
   // Postgres source is connected) and appears under "Bronze extract/load notebooks" — no
   // manual button here anymore.
 
-  const readDest = () => ({
-    workspace_url: container.querySelector('#dbx-dest-url').value.trim(),
-    token: container.querySelector('#dbx-dest-token').value || dest.token || '',
-    sql_warehouse_id: container.querySelector('#dbx-dest-warehouse').value.trim(),
-    catalog: container.querySelector('#dbx-dest-catalog').value.trim() || 'lakehouse',
-    bronze_schema: container.querySelector('#dbx-dest-bronze').value.trim() || 'bronze',
-    silver_schema: container.querySelector('#dbx-dest-silver').value.trim() || 'silver',
-    gold_schema: container.querySelector('#dbx-dest-gold').value.trim() || 'gold',
-    // Raw landing location for {{ source('bronze', …) }}. Empty → server falls back to
-    // catalog / bronze_schema, preserving behavior for destinations set before this field.
-    source_catalog: container.querySelector('#dbx-dest-source-catalog').value.trim(),
-    source_schema: container.querySelector('#dbx-dest-source-schema').value.trim(),
-  });
+  const readDest = () => readDestination(container);
 
-  // Persist destination edits in-session on blur WITHOUT a re-render, so tabbing
-  // between fields isn't disrupted. Check Databricks (below) and the Review & Edit
-  // "Generate conversion" step both read store.sfGlueDestination.
-  container.querySelectorAll('#dbx-dest-url,#dbx-dest-token,#dbx-dest-warehouse,#dbx-dest-catalog,#dbx-dest-bronze,#dbx-dest-silver,#dbx-dest-gold,#dbx-dest-source-catalog,#dbx-dest-source-schema')
-    .forEach(inp => inp.addEventListener('change', () => { store.get().sfGlueDestination = readDest(); }));
+  // Persist destination edits on change WITHOUT a re-render (so tabbing between fields
+  // isn't disrupted). Shared with the Automated Run page; the Review & Edit "Generate
+  // conversion" step reads store.sfGlueDestination.
+  wireDestination(container);
 
   container.querySelector('#dbx-precheck')?.addEventListener('click', async () => {
     const lineage = state.sfGlueLineage && state.sfGlueLineage.lineage;
