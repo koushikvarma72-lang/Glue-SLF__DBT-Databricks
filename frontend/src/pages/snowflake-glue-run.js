@@ -15,6 +15,7 @@ import { api } from '../api.js';
 import { store } from '../store.js';
 import { field, esc } from '../components/ui.js';
 import { notify } from '../components/notify.js';
+import { promptModal } from '../components/modal.js';
 import { reconcilePairs } from './snowflake-glue-dbt-agent.js';
 
 const PHASES = [
@@ -512,8 +513,36 @@ function renderDone(container) {
       const conv = store.get().sfGlueConversion || {};
       const dbtSource = box.querySelector('#run-airflow-dbt-src')?.value || 'workspace';
       let gitUrl, dbtCloudJobId;
-      if (dbtSource === 'git') gitUrl = prompt('Git repo URL for the dbt project:', 'https://github.com/your-org/cdl-dbt.git') || undefined;
-      if (dbtSource === 'dbt_cloud') dbtCloudJobId = prompt('dbt Cloud job ID to trigger:', '') || undefined;
+      if (dbtSource === 'git') {
+        const res = await promptModal({
+          title: 'Airflow DAG — git source',
+          message: 'Git repo URL for the dbt project:',
+          fields: [{
+            id: 'gitUrl', label: 'Git repo URL', type: 'text',
+            placeholder: 'https://github.com/your-org/cdl-dbt.git',
+            value: localStorage.getItem('qvf_dbt_git_url') || 'https://github.com/your-org/cdl-dbt.git',
+          }],
+          confirmLabel: 'Generate',
+        });
+        if (!res) { note.textContent = ''; return; }
+        gitUrl = (res.gitUrl || '').trim() || undefined;
+        if (gitUrl) localStorage.setItem('qvf_dbt_git_url', gitUrl);
+      }
+      if (dbtSource === 'dbt_cloud') {
+        const res = await promptModal({
+          title: 'Airflow DAG — dbt Cloud',
+          message: 'dbt Cloud job ID to trigger:',
+          fields: [{
+            id: 'dbtCloudJobId', label: 'dbt Cloud job ID', type: 'text',
+            placeholder: 'e.g. 123456',
+            value: localStorage.getItem('qvf_dbt_cloud_job_id') || '',
+          }],
+          confirmLabel: 'Generate',
+        });
+        if (!res) { note.textContent = ''; return; }
+        dbtCloudJobId = (res.dbtCloudJobId || '').trim() || undefined;
+        if (dbtCloudJobId) localStorage.setItem('qvf_dbt_cloud_job_id', dbtCloudJobId);
+      }
       const out = await api.emitTargetAirflow({ artifacts: conv, destination: currentDest(),
                                                 dbtSource, gitUrl, dbtCloudJobId });
       const blob = new Blob([out.yaml], { type: 'text/yaml' });

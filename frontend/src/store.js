@@ -1,68 +1,30 @@
-﻿/**
- * QVF Decoder â€” Global State Store
- * Simple reactive state management
+/**
+ * sfglue — Global State Store
+ * Simple reactive state management for the Snowflake + AWS Glue → Databricks/dbt flow.
+ *
+ * (Trimmed from the multi-tool BI app: the Qlik/QVD/Cognos/Tableau/dbxAgent state
+ * families and the QVF per-file review subsystem were removed — this app hosts only
+ * the sfglue flow.)
  */
 
 const state = {
-  currentPage: 'upload',      // 'upload' | 'business' | 'inspect' | 'review' | 'output' | 'deploy' | 'agent' | 'databricks-agent'
+  currentPage: 'sfglue-home',
   sessionId: null,
-  currentFileId: null,
-  fileId: null,
   filename: null,
 
-  // Data from upload
+  // Data surfaced by the lineage/review pages
   graph: { nodes: [], edges: [] },
   tables: [],
-  associations: [],
   metadata: null,
   script: '',
-  sqlSections: [],
   description: '',
-  generationPlan: [],
-  generationPlanText: '',
 
-  // Edited data (Page 2)
-  editedSql: '',
-  editedText: '',
-  editMode: false,
-  rightEditMode: false,
-  activeRightTab: 'sql',
-
-  // Regenerated output (Page 3)
-  regeneratedSql: '',
-  regeneratedText: '',
-  regeneratedLineage: '',
-  regeneration: null,
-  regenerationHistory: [],
-  outputTableSchema: null,
-  isGeneratingOutputTableSchema: false,
-  validationResult: null,
-  isValidatingMigration: false,
-  validationMode: 'quick',
-  validationProgressMessage: '',
-
-  // Review state, keyed by fileId
-  reviewStateByFile: {},
-
-  // UI State
-  isUploading: false,
-  isProcessing: false,
-  uploadingFilename: null,
-  isGenerating: false,
-  uploadProgress: 0,
   dialect: 'databricks',
-  migrationSource: 'qlik',          // landing: source platform
-  migrationDestination: 'databricks', // landing: destination — seeds the default dialect/framework
-  uploadMode: 'qvf',
-  // Last deploy outcome (dbt local / Databricks notebook) — Report page stage.
-  lastDeployment: null,
-  // Post-deploy reconciliation result (schema/key/non-empty vs the deployed
-  // Databricks tables) — Report page "Reconciled against source" stage.
+  uploadMode: 'snowflake_glue',
+  // Post-deploy reconciliation result — Report page "Reconciled against source" stage.
   reconciliation: null,
-  // Error text handed from a failed deploy to the Review chat ("Fix in Review").
-  reviewChatPrefill: null,
 
-  // ─── Snowflake/Glue → Databricks/DBT flow (uploadMode === 'snowflake_glue') ──
+  // ─── Snowflake/Glue → Databricks/DBT flow ────────────────────────────────────
   sfGlueSnowflakeConfig: {
     account: '', user: '', password: '', role: '', warehouse: '', database: '', schema: '', authenticator: '',
   },
@@ -72,6 +34,7 @@ const state = {
   sfGlueSnowflakeConnection: null,   // { success, identity, warehouses, databases } from test-connection
   sfGlueSnowflakeSchemas: [],        // schemas of the selected database (for the Schema picker)
   sfGlueGlueConnection: null,        // { success, identity } from test-connection
+  sfGlueSelectedBucket: '',          // S3 bucket chosen in the bucket picker (persisted)
   sfGlueLineage: null,               // { lineage, duplicates, recommendations, summary, ai_used, jobs }
   sfGlueSelectedTables: [],          // node ids (sf:...) the user chose to migrate
   sfGlueDestination: {
@@ -85,9 +48,9 @@ const state = {
   sfGlueArtifactExplain: {},         // { artifactKey: explanationText }
   sfGlueColumnEdits: {},             // { full_name: "col TYPE\n..." } edited source columns
   // ── Downstream run results (deploy/build/seed/reconcile/tests/grade). Declared
-  //    here so they're never implicit globals, and cleared by SFGLUE_RESULT_KEYS
-  //    below on re-analyze / source-switch / reset (previously they lingered and
-  //    a stale "Deploy complete" could show against a new selection). ──
+  //    here so they're never implicit globals, and cleared by sfGlueResultDefaults()
+  //    on re-analyze / reset (previously they lingered and a stale "Deploy complete"
+  //    could show against a new selection). ──
   sfGlueDeploy: null, isDeployingSfGlue: false,
   sfGlueBuild: null, isBuildingSfGlue: false,
   sfGlueSeedBronze: null, isSeedingSfGlue: false,
@@ -98,188 +61,13 @@ const state = {
   sfGluePostgresConfig: { host: '', port: '5432', database: '', user: '', password: '', schema: '' },
   sfGluePostgresConnection: null, isTestingPostgres: false,
 
-  // ─── Cognos/Qlik → Power BI (PBIP) flow (uploadMode === 'cognos_powerbi') ───
-  cognosModel: null,          // full model from /api/cognos/model/<sid>: {graph, calculations, calcGraph, description, script, ...}
-  cognosCalcs: [],            // calculations/measures list (mirror of cognosModel.calculations)
-  cognosDaxByCalc: {},        // { calcId: {sql, dax, confidence, status, notes} } from convert-measure/dax-convert
-  cognosSelectedCalcId: null, // active measure in the workbench
-  cognosValidation: null,     // /api/cognos/validate-relationships result
-  cognosDataSources: null,    // /api/cognos/table-data-status (embedded CSV/Excel data)
-  cognosArtifactEdits: {},    // { calcId: editedDax } manual DAX edits
-  cognosModelLoadError: null, // store-backed error so the Inspect lazy-fetch can't loop
-  cognosAgentLog: [],         // DAX-Agent activity log, persisted so it survives re-render
-  isUploadingCognos: false,
-  isConvertingCognosDax: false,
-  isValidatingCognosRel: false,
-  isGeneratingCognosPbip: false,
-
+  // sfGlue step loading flags
   isTestingSnowflake: false,
   isTestingGlue: false,
   isBuildingSfGlueLineage: false,
   isReviewingSfGlue: false,
   isPrecheckingSfGlue: false,
   isConvertingSfGlue: false,
-
-  // ─── Tableau → Power BI flow (uploadMode === 'tableau_powerbi') ──────────────
-  tabPbiTableauConfig: {       // source: Tableau Server/Cloud PAT (session-only, NOT persisted)
-    server_url: '', site: '', token_name: '', token_value: '', api_version: '3.19',
-  },
-  tabPbiTableauConnection: null,  // { success, identity } from Tableau test-connection
-  tabPbiContent: null,            // { workbooks, datasources } listed from Tableau Server
-  tabPbiSiteAnalysis: null,       // { summary, projects, workbooks, duplicates, stale } — migration-triage dashboard
-  tabPbiAnalyzeError: null,       // error string from Analyze-site / migrate-from-dashboard (kept in state so it survives re-render)
-  tabPbiTableauWorkbookId: null,  // live Tableau workbook id (set when migrating from a server workbook) — enables real render/PDF export
-  isAnalyzingTableau: false,
-  tabPbiMetadata: null,           // parsed tableau_metadata — held client-side, replayed to later steps
-  tabPbiLineage: null,            // { lineage, duplicates, recommendations, summary, ai_used }
-  tabPbiSelected: [],             // node ids (ds:...) the user chose to migrate
-  tabPbiDestination: {            // destination: Power BI workspace (optional; persisted)
-    workspace_id: '', dataset_name: '', tenant_id: '', client_id: '', client_secret: '', access_token: '',
-  },
-  tabPbiPowerBIConnection: null,  // { success, identity } from Power BI test-connection
-  tabPbiReview: null,             // { datasources, worksheets, dashboards, parameters, business_logic }
-  tabPbiPrecheck: null,           // { targets, already_present, to_migrate, required_not_selected }
-  tabPbiConversion: null,         // { tmdl_tables, dax_measures, m_queries, model_tmdl, database_tmdl, pbip_files, report_notes, assumptions }
-  tabPbiArtifactEdits: {},        // { artifactKey: editedCode }
-  tabPbiArtifactExplain: {},      // { artifactKey: explanationText }
-  isTestingTableau: false,
-  isParsingTableau: false,
-  isTestingPowerBI: false,
-  isBuildingTabPbiLineage: false,
-  isReviewingTabPbi: false,
-  isPrecheckingTabPbi: false,
-  isConvertingTabPbi: false,
-
-  qvdInspection: null,
-  qvdSchemaSuggestion: null,
-  qvdBusinessAnalysis: null,
-  qvdKpiCatalog: null,
-  qvdLineageReconciliation: null,
-  qvdAiExplanation: null,
-  qvdEditableMapping: [],
-  qvdApprovedMapping: null,
-  qvdDdlGeneration: null,
-  qvdRowPreviews: {},
-  qvdColumnProfiles: {},
-  qvdParquetConversions: {},
-  qvdParquetValidations: {},
-  qvdDatabricksLoadScripts: {},
-  qvdMigrationPackages: {},
-  qvdDatabricksConfig: {
-    workspace_url: '',
-    personal_access_token: '',
-    sql_warehouse_id: '',
-    catalog: 'main',
-    schema: 'qvd_raw',
-    volume: '',
-    volume_path: '',
-    cloud_storage_path: '',
-  },
-  qvdDatabricksWarehouses: [],
-  qvdDatabricksCatalogs: [],
-  qvdDatabricksSchemas: [],
-  qvdDatabricksVolumes: [],
-  qvdDatabricksUpload: null,
-  qvdDatabricksConnection: null,
-  qvdDatabricksPrecheck: null,
-  qvdDatabricksExecution: null,
-  qvdExecutionMode: 'generate_sql_only',
-  qvdMappingValidationErrors: [],
-  qvdSelectedFiles: [],
-  isSuggestingQvdSchema: false,
-  isDiscoveringQvdBusinessEntities: false,
-  isGeneratingQvdKpiCatalog: false,
-  isGeneratingQvdLineageReconciliation: false,
-  isGeneratingQvdAiExplanation: false,
-  isSavingQvdMapping: false,
-  isGeneratingQvdDdl: false,
-  qvdPreviewLoadingByFile: {},
-  qvdProfileLoadingByFile: {},
-  qvdParquetLoadingByFile: {},
-  qvdParquetValidationLoadingByFile: {},
-  qvdDatabricksLoadLoadingByFile: {},
-  qvdMigrationPackageLoadingByFile: {},
-  isSavingDatabricksConfig: false,
-  isTestingDatabricksConnection: false,
-  isDiscoveringDatabricksWarehouses: false,
-  isDiscoveringDatabricksCatalogs: false,
-  isDiscoveringDatabricksSchemas: false,
-  isDiscoveringDatabricksVolumes: false,
-  isPreparingDatabricksTarget: false,
-  isUploadingDatabricksParquet: false,
-  isRunningDatabricksPrecheck: false,
-  isExecutingDatabricksMigration: false,
-
-  // Databricks Agent (QVF flow)
-  dbxAgentConfig: {
-    workspace_url: '',
-    personal_access_token: '',
-    oauth_refresh_token: '',
-    oauth_expires_at: 0,
-    sql_warehouse_id: '',
-    cluster_id: '',
-    catalog: 'main',
-    schema: 'default',
-  },
-  dbxAgentConnection: null,
-  dbxAgentWarehouses: [],
-  dbxAgentCatalogs: [],
-  dbxAgentSchemas: [],
-  dbxAgentSourceTables: null,
-  dbxAgentCreateResult: null,
-  dbxAgentNotebookPath: '',
-  dbxAgentDeployResult: null,
-  dbxAgentRunResult: null,
-  dbxAgentRunStatus: null,
-  // AI/BI dashboard (post-deploy): two-question flow + preview/deploy state.
-  dbxAgentWantDashboard: null,          // null (unasked) | true | false
-  dbxAgentDashboardSampleData: null,    // null | 'with' | 'without'
-  dbxAgentSampleDataResult: null,
-  dbxAgentDashboardPreview: null,
-  dbxAgentDeployDashboardResult: null,
-  isTestingDbxAgentConnection: false,
-  isConnectingDbxAgentOAuth: false,
-  isDiscoveringDbxAgentWarehouses: false,
-  isDiscoveringDbxAgentCatalogs: false,
-  isDiscoveringDbxAgentSchemas: false,
-  isGeneratingDbxAgentDdl: false,
-  isCreatingDbxAgentTables: false,
-  isDeployingDbxAgentNotebook: false,
-  isRunningDbxAgentNotebook: false,
-  isCheckingDbxAgentRunStatus: false,
-  isSeedingDbxAgentSampleData: false,
-  isPreviewingDbxAgentDashboard: false,
-  isDeployingDbxAgentDashboard: false,
-
-  // Qlik connector ("Connect to Qlik" upload step)
-  qlikConnection: {
-    mode: 'cloud', // 'cloud' (Qlik Cloud / SaaS) | 'enterprise' (Qlik Sense Enterprise)
-    base_url: '',
-    api_key: '',
-    user_directory: '',
-    user_id: '',
-  },
-  // dbt Cloud Agent connection config (persisted; mirrors dbxAgentConfig/qlikConnection).
-  // baseUrl default '' so the backend's default API URL applies when left blank.
-  dbtCloudConfig: {
-    baseUrl: '',
-    token: '',
-    accountId: '',
-    projectId: '',
-    jobId: '',
-  },
-
-  qlikSourceMode: false, // true when the user chose "Connect to Qlik" instead of a manual file upload
-  qlikConnected: false,
-  qlikIdentity: null,
-  qlikApps: [],
-  qlikSelectedAppId: null,
-  qlikShowAppBrowser: true, // true while the main panel should show the connect form / app picker
-  qlikConnectionError: null,
-  isTestingQlikConnection: false,
-  isLoadingQlikApps: false,
-  isMigratingQlikApp: false,
-  qlikMigratingAppId: null,
 
   // Listeners
   _listeners: [],
@@ -295,9 +83,8 @@ let _notifying = false;
 let _renderQueued = false;
 const _MAX_NOTIFY_PASSES = 50;
 
-// Volatile Snowflake/Glue downstream-run results — cleared on re-analyze,
-// source switch, and reset so a new selection never inherits a prior run's
-// deploy/build/reconcile/test outcome.
+// Volatile Snowflake/Glue downstream-run results — cleared on re-analyze and reset
+// so a new selection never inherits a prior run's deploy/build/reconcile/test outcome.
 function sfGlueResultDefaults() {
   return {
     sfGlueDeploy: null, isDeployingSfGlue: false,
@@ -309,17 +96,13 @@ function sfGlueResultDefaults() {
   };
 }
 
+// NOTE: connection configs — including credentials — ARE persisted to localStorage
+// so a restart on this local dev machine doesn't require retyping. This is an
+// intentional local-dev convenience; do not enable it in a hosted/shared build.
+
 export const store = {
   get() {
     return state;
-  },
-
-  setQuiet(updates) {
-    // Update state WITHOUT notifying the global subscriber, so an intermediate
-    // step in a multi-step flow (e.g. migration generation) doesn't tear down and
-    // rebuild the whole app shell + current page (CodeMirror editors, lineage
-    // graph). The flow renders intentionally at its start and end instead.
-    Object.assign(state, updates);
   },
 
   _notify() {
@@ -352,8 +135,7 @@ export const store = {
         localStorage.removeItem('qvf_session_id');
       }
     }
-    // Persist the active tool (uploadMode) so a refresh restores the RIGHT flow —
-    // e.g. a Cognos session must rehydrate via getCognosModel, not the Qlik route.
+    // Persist the active tool (uploadMode) so a refresh restores the right flow.
     if (updates.uploadMode !== undefined) {
       try {
         if (updates.uploadMode) localStorage.setItem('qvf_upload_mode', state.uploadMode);
@@ -367,44 +149,23 @@ export const store = {
         localStorage.setItem('qvf_dialect', state.dialect || 'databricks');
       } catch (_) { /* storage unavailable — non-fatal */ }
     }
-    // Persist the Databricks connection config (incl. token) so a page refresh
-    // doesn't wipe it and force the user to re-authenticate every time.
-    if (updates.dbxAgentConfig !== undefined) {
-      try {
-        localStorage.setItem('qvf_dbx_agent_config', JSON.stringify(state.dbxAgentConfig || {}));
-      } catch (_) { /* storage unavailable — non-fatal */ }
-    }
-    // Persist the Qlik connection config (incl. API key) so a page refresh
-    // doesn't wipe it and force the user to reconnect every time.
-    if (updates.qlikConnection !== undefined) {
-      try {
-        localStorage.setItem('qvf_qlik_connection', JSON.stringify(state.qlikConnection || {}));
-      } catch (_) { /* storage unavailable — non-fatal */ }
-    }
-    // Persist the dbt Cloud connection config (incl. service token) so a page
-    // refresh doesn't wipe it and force the user to re-enter it every time.
-    if (updates.dbtCloudConfig !== undefined) {
-      try {
-        localStorage.setItem('qvf_dbt_cloud_config', JSON.stringify(state.dbtCloudConfig || {}));
-      } catch (_) { /* storage unavailable — non-fatal */ }
-    }
     // Source connection configs are persisted at the user's request (local demo
     // machine) so a restart doesn't require retyping. NOTE: this stores secrets
     // (Snowflake password, AWS keys, Postgres password) in browser localStorage —
     // acceptable for a local demo, not for shared machines.
     if (updates.sfGlueSnowflakeConfig !== undefined) {
       try {
-        localStorage.setItem('qvf_sfglue_snowflake_config', JSON.stringify(state.sfGlueSnowflakeConfig || {}));
+        localStorage.setItem('qvf_sfglue_snowflake_config', JSON.stringify((state.sfGlueSnowflakeConfig || {})));
       } catch (_) { /* storage unavailable — non-fatal */ }
     }
     if (updates.sfGlueGlueConfig !== undefined) {
       try {
-        localStorage.setItem('qvf_sfglue_glue_config', JSON.stringify(state.sfGlueGlueConfig || {}));
+        localStorage.setItem('qvf_sfglue_glue_config', JSON.stringify((state.sfGlueGlueConfig || {})));
       } catch (_) { /* storage unavailable — non-fatal */ }
     }
     if (updates.sfGluePostgresConfig !== undefined) {
       try {
-        localStorage.setItem('qvf_sfglue_postgres_config', JSON.stringify(state.sfGluePostgresConfig || {}));
+        localStorage.setItem('qvf_sfglue_postgres_config', JSON.stringify((state.sfGluePostgresConfig || {})));
       } catch (_) { /* storage unavailable — non-fatal */ }
     }
     if (updates.sfGlueSelectedBucket !== undefined) {
@@ -414,135 +175,10 @@ export const store = {
     }
     if (updates.sfGlueDestination !== undefined) {
       try {
-        localStorage.setItem('qvf_sfglue_destination', JSON.stringify(state.sfGlueDestination || {}));
-      } catch (_) { /* storage unavailable — non-fatal */ }
-    }
-    // Persist the Power BI workspace (destination) config so a page refresh keeps it.
-    // The Tableau source PAT is intentionally NOT persisted (session-only secret).
-    if (updates.tabPbiDestination !== undefined) {
-      try {
-        localStorage.setItem('qvf_tabpbi_destination', JSON.stringify(state.tabPbiDestination || {}));
+        localStorage.setItem('qvf_sfglue_destination', JSON.stringify((state.sfGlueDestination || {})));
       } catch (_) { /* storage unavailable — non-fatal */ }
     }
     this._notify();
-  },
-
-  ensureFileReviewState(fileId, fallback = {}) {
-    if (!fileId) return null;
-
-    if (!state.reviewStateByFile[fileId]) {
-      state.reviewStateByFile[fileId] = {
-        editMode: false,
-        rightEditMode: false,
-        activeRightTab: 'sql',
-        editedSql: fallback.editedSql || fallback.script || '',
-        editedText: fallback.editedText || fallback.description || '',
-        regeneratedSql: fallback.regeneratedSql || '',
-        regeneratedText: fallback.regeneratedText || '',
-        regeneratedLineage: fallback.regeneratedLineage || '',
-        regeneration: fallback.regeneration || null,
-        regenerationHistory: fallback.regenerationHistory || [],
-        generationPlan: fallback.generationPlan || [],
-        generationPlanText: fallback.generationPlanText || '',
-        outputTableSchema: fallback.outputTableSchema || null,
-        validationResult: fallback.validationResult || null,
-        baseline: fallback.baseline || null,
-      };
-    } else if (fallback && Object.keys(fallback).length > 0) {
-      // Merge carefully: don't let an empty/falsy fallback value clobber a
-      // previously populated value for fields that represent generated
-      // migration output. Without this, re-rendering the review page (e.g.
-      // after navigating away to another page and back, or switching
-      // between file tabs and back) can wipe out a finished migration's
-      // generated code/description because the top-level state mirror was
-      // momentarily out of sync.
-      const protectedKeys = [
-        'editedSql', 'editedText',
-        'regeneratedSql', 'regeneratedText', 'regeneration',
-        'generationPlan', 'generationPlanText', 'regenerationHistory',
-      ];
-      const existing = state.reviewStateByFile[fileId];
-      const safeUpdate = { ...fallback };
-      protectedKeys.forEach((key) => {
-        const incoming = safeUpdate[key];
-        const incomingEmpty = incoming === undefined || incoming === null || incoming === ''
-          || (Array.isArray(incoming) && incoming.length === 0);
-        const existingValue = existing[key];
-        const existingPopulated = existingValue !== undefined && existingValue !== null && existingValue !== ''
-          && !(Array.isArray(existingValue) && existingValue.length === 0);
-        if (incomingEmpty && existingPopulated) {
-          delete safeUpdate[key];
-        }
-      });
-      Object.assign(existing, safeUpdate);
-    }
-
-    return state.reviewStateByFile[fileId];
-  },
-
-  getFileReviewState(fileId) {
-    if (!fileId) return null;
-    return state.reviewStateByFile[fileId] || null;
-  },
-
-  setFileReviewState(fileId, updates) {
-    if (!fileId) return null;
-    const current = this.ensureFileReviewState(fileId);
-    Object.assign(current, updates);
-    this._syncCurrentFileMirror(fileId);
-    return current;
-  },
-
-  setFileReviewBaseline(fileId, baseline) {
-    if (!fileId) return null;
-    const current = this.ensureFileReviewState(fileId);
-    current.baseline = { ...baseline };
-    this._syncCurrentFileMirror(fileId);
-    return current;
-  },
-
-  isFileReviewDirty(fileId, snapshot) {
-    const current = state.reviewStateByFile[fileId];
-    if (!current || !current.baseline) return true;
-
-    const live = snapshot || {
-      sourceSql: current.editedSql || '',
-      regenSql: current.regeneratedSql || '',
-      regenText: current.regeneratedText || '',
-    };
-
-    return (
-      live.sourceSql !== (current.baseline.sourceSql || '') ||
-      live.regenSql !== (current.baseline.regenSql || '') ||
-      live.regenText !== (current.baseline.regenText || '')
-    );
-  },
-
-  setCurrentFile(fileId, fallback = {}) {
-    const current = this.ensureFileReviewState(fileId, fallback);
-    state.currentFileId = fileId;
-    state.fileId = fileId;
-    if (current) this._syncCurrentFileMirror(fileId);
-    return current;
-  },
-
-  _syncCurrentFileMirror(fileId) {
-    const current = state.reviewStateByFile[fileId];
-    if (!current) return;
-    state.editMode = !!current.editMode;
-    state.rightEditMode = !!current.rightEditMode;
-    state.activeRightTab = current.activeRightTab || 'sql';
-    state.editedSql = current.editedSql || '';
-    state.editedText = current.editedText || '';
-    state.regeneratedSql = current.regeneratedSql || '';
-    state.regeneratedText = current.regeneratedText || '';
-    state.regeneratedLineage = current.regeneratedLineage || '';
-    state.regeneration = current.regeneration || null;
-    state.regenerationHistory = current.regenerationHistory || [];
-    state.generationPlan = current.generationPlan || [];
-    state.generationPlanText = current.generationPlanText || '';
-    state.outputTableSchema = current.outputTableSchema || null;
-    state.validationResult = current.validationResult || null;
   },
 
   subscribe(fn) {
@@ -580,87 +216,18 @@ export const store = {
     }
   },
 
-  // Merge a partial into a Tableau→Power BI config in memory WITHOUT re-rendering
-  // (mirrors patchSfGlueConfig). which='powerbi' patches the destination workspace;
-  // otherwise the Tableau source PAT (session-only, never persisted). invalidateLineage
-  // drops stale lineage/selection/conversion so a source change forces a fresh parse.
-  patchTabPbiConfig(which, partial, { invalidateLineage = false } = {}) {
-    const key = which === 'powerbi' ? 'tabPbiDestination' : 'tabPbiTableauConfig';
-    state[key] = { ...state[key], ...partial };
-    if (invalidateLineage) {
-      state.tabPbiLineage = null;
-      state.tabPbiReview = null;
-      state.tabPbiSelected = [];
-      state.tabPbiPrecheck = null;
-      state.tabPbiConversion = null;
-      state.tabPbiArtifactEdits = {};
-      state.tabPbiArtifactExplain = {};
-    }
-  },
-
-  // Clear loaded data for BOTH source flows (Qlik/QVD and Snowflake/Glue) when the
-  // user switches migration tool/source, so no stale reference (e.g. a QVF
-  // filename) leaks into the newly-selected flow. Saved connection configs and
-  // destination credentials are intentionally preserved.
-  clearWorkspaceForSourceSwitch() {
-    Object.assign(state, {
-      sessionId: null, currentFileId: null, fileId: null, filename: null,
-      graph: { nodes: [], edges: [] }, tables: [], associations: [], metadata: null,
-      script: '', description: '', sqlSections: [],
-      regeneratedSql: '', regeneratedText: '', regeneratedLineage: '', regeneration: null,
-      regenerationHistory: [], reviewStateByFile: {}, sessionStats: null,
-      qvdInspection: null, qvdSchemaSuggestion: null, qvdBusinessAnalysis: null,
-      qvdKpiCatalog: null, qvdLineageReconciliation: null, qvdAiExplanation: null,
-      qvdDdlGeneration: null, qvdSelectedFiles: [],
-      sfGlueSnowflakeConnection: null, sfGlueGlueConnection: null, sfGlueLineage: null,
-      sfGlueReview: null, sfGlueSelectedTables: [], sfGluePrecheck: null, sfGlueConversion: null,
-      sfGlueArtifactEdits: {}, sfGlueArtifactExplain: {},
-      sfGluePostgresConnection: null, isTestingPostgres: false,
-      ...sfGlueResultDefaults(),
-      tabPbiTableauConnection: null, tabPbiPowerBIConnection: null, tabPbiContent: null,
-      tabPbiSiteAnalysis: null, tabPbiAnalyzeError: null, tabPbiTableauWorkbookId: null, isAnalyzingTableau: false,
-      tabPbiMetadata: null, tabPbiLineage: null, tabPbiSelected: [], tabPbiReview: null,
-      tabPbiPrecheck: null, tabPbiConversion: null, tabPbiArtifactEdits: {}, tabPbiArtifactExplain: {},
-      cognosModel: null, cognosCalcs: [], cognosDaxByCalc: {}, cognosSelectedCalcId: null,
-      cognosValidation: null, cognosDataSources: null, cognosArtifactEdits: {},
-      cognosModelLoadError: null, cognosAgentLog: [],
-    });
-    localStorage.removeItem('qvf_session_id');  // don't restore the old session on reload
-    this._notify();
-  },
-
   reset() {
     Object.assign(state, {
       sessionId: null,
-      currentFileId: null,
-      fileId: null,
       filename: null,
       graph: { nodes: [], edges: [] },
       tables: [],
-      associations: [],
       metadata: null,
       script: '',
-      sqlSections: [],
       description: '',
-      generationPlan: [],
-      generationPlanText: '',
-      editedSql: '',
-      editedText: '',
-      editMode: false,
-      rightEditMode: false,
-      activeRightTab: 'sql',
-      regeneratedSql: '',
-      regeneratedText: '',
-      regeneratedLineage: '',
-      regeneration: null,
-      regenerationHistory: [],
-      outputTableSchema: null,
-      isGeneratingOutputTableSchema: false,
-      validationResult: null,
-      isValidatingMigration: false,
-      validationMode: 'quick',
-      validationProgressMessage: '',
-      reviewStateByFile: {},
+      dialect: 'databricks',
+      uploadMode: 'snowflake_glue',
+      reconciliation: null,
       // Snowflake/Glue flow — connections, lineage, artifacts, and run results.
       sfGlueSnowflakeConnection: null, sfGlueGlueConnection: null, sfGlueSnowflakeSchemas: [],
       sfGlueLineage: null, sfGlueReview: null, sfGlueSelectedTables: [],
@@ -668,219 +235,34 @@ export const store = {
       sfGlueArtifactExplain: {}, sfGlueColumnEdits: {},
       sfGluePostgresConnection: null, isTestingPostgres: false,
       ...sfGlueResultDefaults(),
-      isUploading: false,
-      isProcessing: false,
-      uploadingFilename: null,
-      isGenerating: false,
-      dialect: 'databricks',
-      migrationSource: 'qlik',
-      migrationDestination: 'databricks',
-      uploadMode: 'qvf',
-      lastDeployment: null,
-      reconciliation: null,
-      reviewChatPrefill: null,
-      qvdInspection: null,
-      qvdSchemaSuggestion: null,
-      qvdBusinessAnalysis: null,
-      qvdKpiCatalog: null,
-      qvdLineageReconciliation: null,
-      qvdAiExplanation: null,
-      qvdEditableMapping: [],
-      qvdApprovedMapping: null,
-      qvdDdlGeneration: null,
-      qvdRowPreviews: {},
-      qvdColumnProfiles: {},
-      qvdParquetConversions: {},
-      qvdParquetValidations: {},
-      qvdDatabricksLoadScripts: {},
-      qvdMigrationPackages: {},
-      qvdDatabricksConfig: {
-        workspace_url: '',
-        personal_access_token: '',
-        sql_warehouse_id: '',
-        catalog: 'main',
-        schema: 'qvd_raw',
-        volume: '',
-        volume_path: '',
-        cloud_storage_path: '',
-      },
-      qvdDatabricksWarehouses: [],
-      qvdDatabricksCatalogs: [],
-      qvdDatabricksSchemas: [],
-      qvdDatabricksVolumes: [],
-      qvdDatabricksUpload: null,
-      qvdDatabricksConnection: null,
-      qvdDatabricksPrecheck: null,
-      qvdDatabricksExecution: null,
-      qvdExecutionMode: 'generate_sql_only',
-      qvdMappingValidationErrors: [],
-      qvdSelectedFiles: [],
-      isSuggestingQvdSchema: false,
-      isDiscoveringQvdBusinessEntities: false,
-      isGeneratingQvdKpiCatalog: false,
-      isGeneratingQvdLineageReconciliation: false,
-      isGeneratingQvdAiExplanation: false,
-      isGeneratingQvdDdl: false,
-      isSavingQvdMapping: false,
-      qvdPreviewLoadingByFile: {},
-      qvdProfileLoadingByFile: {},
-      qvdParquetLoadingByFile: {},
-      qvdParquetValidationLoadingByFile: {},
-      qvdDatabricksLoadLoadingByFile: {},
-      qvdMigrationPackageLoadingByFile: {},
-      isSavingDatabricksConfig: false,
-      isTestingDatabricksConnection: false,
-      isDiscoveringDatabricksWarehouses: false,
-      isDiscoveringDatabricksCatalogs: false,
-      isDiscoveringDatabricksSchemas: false,
-      isDiscoveringDatabricksVolumes: false,
-      isPreparingDatabricksTarget: false,
-      isUploadingDatabricksParquet: false,
-      isRunningDatabricksPrecheck: false,
-      isExecutingDatabricksMigration: false,
-      dbxAgentConfig: {
-        workspace_url: '',
-        personal_access_token: '',
-        oauth_refresh_token: '',
-        oauth_expires_at: 0,
-        sql_warehouse_id: '',
-        cluster_id: '',
-        catalog: 'main',
-        schema: 'default',
-      },
-      dbxAgentConnection: null,
-      dbxAgentWarehouses: [],
-      dbxAgentCatalogs: [],
-      dbxAgentSchemas: [],
-      dbxAgentSourceTables: null,
-      dbxAgentCreateResult: null,
-      dbxAgentNotebookPath: '',
-      dbxAgentDeployResult: null,
-      dbxAgentRunResult: null,
-      dbxAgentRunStatus: null,
-      dbxAgentWantDashboard: null,
-      dbxAgentDashboardSampleData: null,
-      dbxAgentSampleDataResult: null,
-      dbxAgentDashboardPreview: null,
-      dbxAgentDeployDashboardResult: null,
-      isTestingDbxAgentConnection: false,
-  isConnectingDbxAgentOAuth: false,
-      isDiscoveringDbxAgentWarehouses: false,
-      isDiscoveringDbxAgentCatalogs: false,
-      isDiscoveringDbxAgentSchemas: false,
-      isGeneratingDbxAgentDdl: false,
-      isCreatingDbxAgentTables: false,
-      isDeployingDbxAgentNotebook: false,
-      isRunningDbxAgentNotebook: false,
-      isCheckingDbxAgentRunStatus: false,
-      isSeedingDbxAgentSampleData: false,
-      isPreviewingDbxAgentDashboard: false,
-      isDeployingDbxAgentDashboard: false,
-      dbtCloudConfig: {
-        baseUrl: '',
-        token: '',
-        accountId: '',
-        projectId: '',
-        jobId: '',
-      },
-      qlikSourceMode: false,
-      // Reset the in-memory credentials as well — reset() already removes the
-      // localStorage copy below, so keeping the key in memory was inconsistent.
-      qlikConnection: {
-        mode: 'cloud',
-        base_url: '',
-        api_key: '',
-        user_directory: '',
-        user_id: '',
-      },
-      qlikConnected: false,
-      qlikIdentity: null,
-      qlikApps: [],
-      qlikSelectedAppId: null,
-      qlikShowAppBrowser: true,
-      qlikConnectionError: null,
-      isTestingQlikConnection: false,
-      isLoadingQlikApps: false,
-      isMigratingQlikApp: false,
-      qlikMigratingAppId: null,
-      // Tableau → Power BI
-      tabPbiTableauConfig: {
-        server_url: '', site: '', token_name: '', token_value: '', api_version: '3.19',
-      },
-      tabPbiTableauConnection: null,
-      tabPbiContent: null,
-      tabPbiSiteAnalysis: null,
-      tabPbiAnalyzeError: null,
-      tabPbiTableauWorkbookId: null,
-      isAnalyzingTableau: false,
-      tabPbiMetadata: null,
-      tabPbiLineage: null,
-      tabPbiSelected: [],
-      tabPbiDestination: {
-        workspace_id: '', dataset_name: '', tenant_id: '', client_id: '', client_secret: '', access_token: '',
-      },
-      tabPbiPowerBIConnection: null,
-      tabPbiReview: null,
-      tabPbiPrecheck: null,
-      tabPbiConversion: null,
-      tabPbiArtifactEdits: {},
-      tabPbiArtifactExplain: {},
-      isTestingTableau: false,
-      isParsingTableau: false,
-      isTestingPowerBI: false,
-      isBuildingTabPbiLineage: false,
-      isReviewingTabPbi: false,
-      isPrecheckingTabPbi: false,
-      isConvertingTabPbi: false,
-      // Cognos/Qlik → Power BI (PBIP)
-      cognosModel: null,
-      cognosCalcs: [],
-      cognosDaxByCalc: {},
-      cognosSelectedCalcId: null,
-      cognosValidation: null,
-      cognosDataSources: null,
-      cognosArtifactEdits: {},
-      cognosModelLoadError: null,
-      cognosAgentLog: [],
-      isUploadingCognos: false,
-      isConvertingCognosDax: false,
-      isValidatingCognosRel: false,
-      isGeneratingCognosPbip: false,
     });
     localStorage.removeItem('qvf_session_id');
     localStorage.removeItem('qvf_upload_mode');
-    localStorage.removeItem('qvf_dbx_agent_config');
-    localStorage.removeItem('qvf_dbt_cloud_config');
     localStorage.removeItem('qvf_dialect');
-    localStorage.removeItem('qvf_qlik_connection');
     localStorage.removeItem('qvf_sfglue_destination');
     localStorage.removeItem('qvf_sfglue_snowflake_config');
     localStorage.removeItem('qvf_sfglue_glue_config');
     localStorage.removeItem('qvf_sfglue_postgres_config');
     localStorage.removeItem('qvf_sfglue_bucket');
-    localStorage.removeItem('qvf_tabpbi_destination');
     this._notify();
   },
 };
 
-// Initialize from URL hash. Accept the legacy pages, the 'report' page, and any
-// registry tool page (cognos-*/sfglue-* etc.); main.js's validNavPage() is the
-// authoritative gate, so keep this permissive rather than a drifting hard-coded list.
+// Initialize from URL hash. main.js's validNavPage() is the authoritative gate, so
+// keep this permissive (any sfglue-* page) rather than a drifting hard-coded list.
 const hash = window.location.hash.slice(1);
-const _LEGACY_PAGES = ['upload', 'business', 'inspect', 'review', 'output', 'deploy', 'agent', 'databricks-agent', 'report'];
-if (_LEGACY_PAGES.includes(hash) || /^(cognos|sfglue|tabpbi)-[a-z-]+$/.test(hash)) {
+if (/^sfglue-[a-z-]+$/.test(hash)) {
   state.currentPage = hash;
 }
 
 // Restore sessionId + active tool from localStorage so a page refresh reconnects to
-// the active session AND the correct flow. main.js rehydrates full state via the
-// tool-appropriate endpoint (getCognosModel for Cognos, getModel for Qlik/QVF).
+// the active session and the correct flow.
 const _storedSessionId = localStorage.getItem('qvf_session_id');
 if (_storedSessionId) {
   state.sessionId = _storedSessionId;
 }
 const _storedUploadMode = localStorage.getItem('qvf_upload_mode');
-if (['qvf', 'qvd', 'snowflake_glue', 'cognos_powerbi', 'tableau_powerbi'].includes(_storedUploadMode)) {
+if (['snowflake_glue'].includes(_storedUploadMode)) {
   state.uploadMode = _storedUploadMode;
 }
 
@@ -890,33 +272,6 @@ const _storedDialect = localStorage.getItem('qvf_dialect');
 if (['pyspark', 'databricks', 'snowflake'].includes(_storedDialect)) {
   state.dialect = _storedDialect;
 }
-
-// Restore the persisted Databricks connection config so the token/workspace URL
-// survive a page refresh.
-try {
-  const _storedDbxConfig = localStorage.getItem('qvf_dbx_agent_config');
-  if (_storedDbxConfig) {
-    state.dbxAgentConfig = { ...state.dbxAgentConfig, ...JSON.parse(_storedDbxConfig) };
-  }
-} catch (_) { /* ignore malformed/unavailable storage */ }
-
-// Restore the persisted Qlik connection config so the API key/base URL
-// survive a page refresh.
-try {
-  const _storedQlikConfig = localStorage.getItem('qvf_qlik_connection');
-  if (_storedQlikConfig) {
-    state.qlikConnection = { ...state.qlikConnection, ...JSON.parse(_storedQlikConfig) };
-  }
-} catch (_) { /* ignore malformed/unavailable storage */ }
-
-// Restore the persisted dbt Cloud connection config so the service token,
-// account/project/job IDs, and API URL survive a page refresh.
-try {
-  const _storedDbtCloudConfig = localStorage.getItem('qvf_dbt_cloud_config');
-  if (_storedDbtCloudConfig) {
-    state.dbtCloudConfig = { ...state.dbtCloudConfig, ...JSON.parse(_storedDbtCloudConfig) };
-  }
-} catch (_) { /* ignore malformed/unavailable storage */ }
 
 // Restore the persisted source connection configs (user-requested convenience on a
 // local demo machine — includes secrets; see the matching note in set()).
@@ -936,13 +291,3 @@ try {
     state.sfGlueDestination = { ...state.sfGlueDestination, ...JSON.parse(_storedDest) };
   }
 } catch (_) { /* ignore malformed/unavailable storage */ }
-
-// Restore the persisted Power BI workspace (destination) config for the Tableau flow.
-// The Tableau source PAT is session-only and never restored.
-try {
-  const _storedTabPbiDest = localStorage.getItem('qvf_tabpbi_destination');
-  if (_storedTabPbiDest) {
-    state.tabPbiDestination = { ...state.tabPbiDestination, ...JSON.parse(_storedTabPbiDest) };
-  }
-} catch (_) { /* ignore malformed/unavailable storage */ }
-

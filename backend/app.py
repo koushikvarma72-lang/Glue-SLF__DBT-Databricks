@@ -22,7 +22,13 @@ FRONTEND_DIST = os.path.join(os.path.dirname(_HERE), "frontend", "dist")
 
 def create_app():
     app = Flask(__name__, static_folder=None)
-    CORS(app)
+    # Credential-bearing /api/* endpoints must not be callable from arbitrary origins.
+    # Restrict to the local dev origin(s); override with SFGLUE_CORS_ORIGINS (comma-sep).
+    _origins = [o.strip() for o in os.environ.get(
+        "SFGLUE_CORS_ORIGINS",
+        "http://localhost:5060,http://127.0.0.1:5060",
+    ).split(",") if o.strip()]
+    CORS(app, resources={r"/api/*": {"origins": _origins}})
 
     register_snowflake_glue_routes(app, call_ai=call_ai)
 
@@ -53,5 +59,8 @@ app = create_app()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5060"))
-    logger.info("sfglue app on http://0.0.0.0:%d", port)
-    app.run(host="0.0.0.0", port=port, debug=True)
+    # Default to loopback + no debug; opt into wider binding / reloader explicitly.
+    host = os.environ.get("SFGLUE_HOST", "127.0.0.1")
+    debug = os.environ.get("SFGLUE_DEBUG", "0") == "1"
+    logger.info("sfglue app on http://%s:%d (debug=%s)", host, port, debug)
+    app.run(host=host, port=port, debug=debug)

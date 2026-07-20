@@ -10,7 +10,15 @@ describe('api client surface', () => {
   });
 
   it('exposes the core methods used across pages', () => {
-    for (const method of ['uploadFile', 'streamJob', 'chatStream', 'regenerate']) {
+    for (const method of [
+      'testSnowflakeConnection',
+      'buildSnowflakeGlueLineage',
+      'convertSnowflakeGlueMigration',
+      'deploySnowflakeGlueMigration',
+      'reconcileSnowflakeGlueMigration',
+      'planSfGlueWorkflows',
+      'emitTargetAirflow',
+    ]) {
       expect(api[method], `api.${method}`).toBeTypeOf('function');
     }
   });

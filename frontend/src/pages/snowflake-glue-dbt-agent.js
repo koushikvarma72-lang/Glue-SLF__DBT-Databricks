@@ -212,49 +212,6 @@ async function cancelSfgDbtLocal() {
   catch (err) { _sfgRun.cancelling = false; _sfgRun.error = err.message; renderSfgRunView(); }
 }
 
-// ── Push converted models to a GitHub repo (the dbt Cloud production path) ──
-// Persist only the non-secret repo coordinates; the token stays in the input (memory).
-function loadRepoCfg() {
-  try { return JSON.parse(localStorage.getItem('qvf_sfglue_repo') || '{}'); } catch { return {}; }
-}
-function saveRepoCfg(c) {
-  try {
-    localStorage.setItem('qvf_sfglue_repo', JSON.stringify({
-      owner: c.owner || '', repo: c.repo || '', branch: c.branch || '', path: c.path || '' }));
-  } catch { /* storage disabled — non-fatal */ }
-}
-
-async function pushSfgModelsToRepo(container) {
-  const get = id => (container.querySelector(id)?.value || '').trim();
-  const github = {
-    token: get('#sfg-gh-token'), owner: get('#sfg-gh-owner'), repo: get('#sfg-gh-repo'),
-    branch: get('#sfg-gh-branch') || 'main', path: get('#sfg-gh-path') || 'models',
-  };
-  const resEl = container.querySelector('#sfg-gh-result');
-  const setRes = html => { if (resEl) resEl.innerHTML = html; };
-  if (!github.token) return setRes('<span style="color:var(--danger,#dc2626)">GitHub token required (repo write scope).</span>');
-  if (!github.owner || !github.repo) return setRes('<span style="color:var(--danger,#dc2626)">Owner and repo are required.</span>');
-  saveRepoCfg(github);
-  const { models, sources_yml } = sfgModelsWithEdits();
-  if (!Object.keys(models).length) { notify('Generate the conversion first.', { kind: 'warning', title: 'Nothing to push' }); return; }
-  const btn = container.querySelector('#sfg-gh-push');
-  if (btn) { btn.disabled = true; btn.textContent = 'Pushing…'; }
-  setRes('<span style="color:var(--text-muted)">Pushing…</span>');
-  try {
-    const r = await api.pushModelsToRepo({ github, models, sources_yml });
-    const ok = (r.pushed || []).length, bad = (r.failed || []).length;
-    const okRows = (r.pushed || []).map(p => `<div style="font-size:11px"><span style="color:var(--success,#16a34a)">✓</span> <code>${esc(p.path)}</code></div>`).join('');
-    const badRows = (r.failed || []).map(p => `<div style="font-size:11px"><span style="color:var(--danger,#dc2626)">✗</span> <code>${esc(p.path)}</code> — ${esc(p.detail)}</div>`).join('');
-    setRes(`<div style="font-size:12px;margin-bottom:4px">Pushed <strong>${ok}</strong> file(s) to <code>${esc(r.repo)}@${esc(r.branch)}</code>${bad ? ` · ${bad} failed` : ''}.${(ok && !bad) ? ' Now trigger the dbt Cloud job (DBT Agent run) to build them.' : ''}</div>${okRows}${badRows}`);
-    notify(bad ? `Pushed ${ok}, ${bad} failed` : `Pushed ${ok} file(s) to ${r.repo}`, { kind: bad ? 'warning' : 'success', title: 'Push to repo' });
-  } catch (e) {
-    setRes(`<span style="color:var(--danger,#dc2626)">⚠ ${esc(e.message)}</span>`);
-    notify(e.message, { kind: 'error', title: 'Push failed' });
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '⬆ Push to repo'; }
-  }
-}
-
 // Snowflake source connection (same derivation as the Review step).
 function snowflakeConfig(state) {
   const sf = state.sfGlueSnowflakeConfig || {};
@@ -340,7 +297,7 @@ function renderReconcile(state) {
     return `<tr>
       <td style="padding:4px 8px;font-family:monospace;font-size:12px">${esc(p.source)}</td>
       <td style="padding:4px 8px;font-family:monospace;font-size:12px;color:var(--text-secondary)">${esc(p.target)}</td>
-      <td style="padding:4px 8px"><input class="rec-key" data-src="${esc(p.source)}" value="${esc(p.key)}" placeholder="primary key(s), comma-sep" aria-label="Reconcile key column(s) for ${esc(p.source)}"
+      <td style="padding:4px 8px"><input class="rec-key" data-src="${esc(p.source)}" value="${esc(p.key)}" placeholder="optional — auto-inferred" aria-label="Reconcile key column(s) for ${esc(p.source)} (optional)"
         style="width:170px;padding:3px 7px;border:1px solid var(--border);border-radius:5px;background:var(--bg-primary);color:var(--text-primary);font-size:11px;font-family:monospace" /></td>
       <td style="padding:4px 8px;font-size:12px">${status}</td>
     </tr>${chipRow}`;
@@ -349,7 +306,7 @@ function renderReconcile(state) {
     <table style="width:100%;border-collapse:collapse">
       <thead><tr style="text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim)">
         <th style="padding:4px 8px">Source (Snowflake)</th><th style="padding:4px 8px">Candidate (Databricks)</th>
-        <th style="padding:4px 8px">Primary key</th><th style="padding:4px 8px">Result</th>
+        <th style="padding:4px 8px">Primary key <span style="text-transform:none;font-weight:400;color:var(--text-muted)">(optional)</span></th><th style="padding:4px 8px">Result</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
@@ -392,7 +349,6 @@ export function renderSfGlueDbtAgentPage(container) {
   }
 
   const models = conv.dbt_models || {};
-  const repoCfg = loadRepoCfg();
   const busyRec = state.isReconcilingSfGlue;
   const busyTest = state.isTestingSfGlue;
   const hasTests = ((conv.test_specs || []).length) > 0;
@@ -429,22 +385,13 @@ export function renderSfGlueDbtAgentPage(container) {
           <pre id="sfg-dbt-log" style="margin:0;padding:10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;overflow:auto;max-height:260px;font-size:11px;line-height:1.5;white-space:pre-wrap">No output yet.</pre>
         </div>
 
-        <!-- PUSH: commit the models to the dbt Cloud project's GitHub repo (production path) -->
+        <!-- EXPORT: download the full runnable dbt project as a .zip -->
         <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px;background:var(--bg-surface)">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
-            <strong style="font-size:13px">⬆ Push to GitHub repo (dbt Cloud)</strong>
-            <span style="font-size:11px;color:var(--text-muted)">Commits these models to the repo your dbt Cloud project is connected to, so the Cloud job runs them. <strong>External GitHub repo only</strong> — dbt's managed repo has no write API.</span>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <strong style="font-size:13px">⤓ Export dbt project</strong>
+            <span style="font-size:11px;color:var(--text-muted)">Download the full runnable dbt project as a .zip — models + sources/schema/unit-tests/packages + dbt_project.yml + profiles.yml + bronze notebooks + reference DDL.</span>
             <button class="btn btn-secondary" id="sfg-dbt-export" style="margin-left:auto;padding:4px 12px;font-size:12px" title="Download the full runnable dbt project as a .zip — models + sources/schema/unit-tests/packages + dbt_project.yml + profiles.yml + bronze notebooks + reference DDL.">⤓ Export dbt project (.zip)</button>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-            <input id="sfg-gh-token" type="password" placeholder="GitHub token (repo write)" autocomplete="off" style="flex:2;min-width:200px;padding:5px 9px;border:1px solid var(--border);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font-size:12px" />
-            <input id="sfg-gh-owner" placeholder="owner" value="${esc(repoCfg.owner || '')}" style="flex:1;min-width:110px;padding:5px 9px;border:1px solid var(--border);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font-size:12px" />
-            <input id="sfg-gh-repo" placeholder="repo" value="${esc(repoCfg.repo || '')}" style="flex:1;min-width:110px;padding:5px 9px;border:1px solid var(--border);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font-size:12px" />
-            <input id="sfg-gh-branch" placeholder="branch (main)" value="${esc(repoCfg.branch || '')}" style="width:120px;padding:5px 9px;border:1px solid var(--border);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font-size:12px" />
-            <input id="sfg-gh-path" placeholder="path (models)" value="${esc(repoCfg.path || '')}" style="width:120px;padding:5px 9px;border:1px solid var(--border);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font-size:12px" />
-            <button class="btn btn-secondary" id="sfg-gh-push" style="padding:4px 12px;font-size:12px">⬆ Push to repo</button>
-          </div>
-          <div id="sfg-gh-result" style="font-size:12px"></div>
         </div>
 
         <!-- STAGED GATE 1: run the generated dbt tests + enforced contracts on the warehouse -->
@@ -462,7 +409,7 @@ export function renderSfGlueDbtAgentPage(container) {
         <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px;background:var(--bg-surface)">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
             <strong style="font-size:13px">✅ Verify against source</strong>
-            <span style="font-size:11px;color:var(--text-muted)">Diffs row counts, key integrity &amp; per-column aggregates (Snowflake vs Databricks). Build/deploy the tables first.</span>
+            <span style="font-size:11px;color:var(--text-muted)">Runs on every table automatically — schema parity, row counts &amp; per-column aggregate fingerprints (Snowflake vs Databricks). No keys to fill in; add one only to also check duplicate/null keys. Build/deploy the tables first.</span>
             <button class="btn btn-primary" id="rec-run" ${(busyRec || !built) ? 'disabled' : ''} title="${esc(recTitle)}" style="margin-left:auto;padding:4px 12px;font-size:12px">${busyRec ? 'Verifying…' : '🔬 Verify all'}</button>
           </div>
           <div id="rec-error" style="color:var(--danger,#dc2626);font-size:12px;margin-bottom:6px">${esc(state.sfGlueReconcileError || '')}</div>
@@ -487,7 +434,6 @@ export function renderSfGlueDbtAgentPage(container) {
   // polling if a run is still in flight after this re-render.
   container.querySelector('#sfg-dbt-run')?.addEventListener('click', runSfgDbtLocal);
   container.querySelector('#sfg-dbt-cancel')?.addEventListener('click', cancelSfgDbtLocal);
-  container.querySelector('#sfg-gh-push')?.addEventListener('click', () => pushSfgModelsToRepo(container));
   container.querySelector('#sfg-dbt-export')?.addEventListener('click', () => exportSfgDbtProject(container));
   if (_sfgRun.jobId && _sfgRun.running && !_sfgPollTimer) startSfgPolling();
   renderSfgRunView();
@@ -516,7 +462,9 @@ export function renderSfGlueDbtAgentPage(container) {
       .map(p => ({ source: p.source, candidate: p.target, key: keyBySrc[p.source] || p.key }))
       .filter(p => p.candidate);
     if (!pairs.length) return fail('No tables to verify.');
-    if (pairs.every(p => !p.key)) return fail('Set a primary key for at least one table to verify.');
+    // No primary key required: verification runs schema parity + row count + per-column
+    // aggregate fingerprint on every table without one. A key is optional — when present
+    // (typed, declared, or auto-inferred server-side) it adds the duplicate/null-key check.
     store.set({ sfGlueReconcileKeys: keyBySrc, sfGlueReconcileError: '', isReconcilingSfGlue: true });
     try {
       const result = await api.reconcileSnowflakeGlueMigration({ snowflake, destination, pairs });

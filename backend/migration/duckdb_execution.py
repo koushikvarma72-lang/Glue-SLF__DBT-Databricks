@@ -11,7 +11,10 @@ references that isn't in the sample) returns None so the caller transparently
 falls back to LLM simulation. No web/app dependency.
 """
 
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 
 _JINJA_CONFIG = re.compile(r'\{\{\s*config\s*\([^}]*\)\s*\}\}', re.IGNORECASE | re.DOTALL)
 _JINJA_REF = re.compile(r"""\{\{\s*ref\(\s*['"]([^'"]+)['"]\s*\)\s*\}\}""", re.IGNORECASE)
@@ -291,4 +294,5 @@ def execute_sql_on_sample(code, sample_data, dialect='databricks', output_name='
             try:
                 con.close()
             except Exception:
-                pass
+                logger.warning(
+                    "duckdb_execution: failed to close DuckDB connection", exc_info=True)

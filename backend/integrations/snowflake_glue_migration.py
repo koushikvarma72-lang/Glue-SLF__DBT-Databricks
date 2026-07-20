@@ -20,6 +20,7 @@ isn't configured, so they always return usable output.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -46,19 +47,29 @@ logger = logging.getLogger(__name__)
 # independent, I/O-bound calls. Run them concurrently (bounded, to stay under the
 # provider's rate limit) instead of serially. Tune with SFGLUE_AI_WORKERS.
 try:
-    _AI_WORKERS = max(1, int(os.environ.get("SFGLUE_AI_WORKERS", "4")))
+    _AI_WORKERS = max(1, int(os.environ.get("SFGLUE_AI_WORKERS", "8")))
 except ValueError:
-    _AI_WORKERS = 4
+    _AI_WORKERS = 8
+
+# _map_concurrent nests (a transform-job pool spawns a per-output-table pool), so the
+# per-pool ``max_workers`` never bounded the true count — bursts could hit ~workers²
+# uncoordinated provider calls and trip throttling. _AI_GATE is a single PROCESS-WIDE
+# semaphore around the actual model call, so no matter how the pools nest, at most
+# _AI_WORKERS translations are ever in flight at once. The pools just supply threads to
+# reach that ceiling (they can't deadlock — each pool is independent, never shared).
+_AI_GATE = threading.BoundedSemaphore(_AI_WORKERS)
 
 
 from backend.migration.dialect_normalizer import finalize_sfglue_model_sql
 
 
 def _map_concurrent(items, fn):
-    """Apply ``fn`` to each item concurrently (bounded by _AI_WORKERS), preserving
-    input order. Falls back to serial for 0/1 items. ``fn`` should handle its own
-    errors (the AI converters degrade to a scaffold), so a slow/failed call never
-    sinks the batch."""
+    """Apply ``fn`` to each item concurrently, preserving input order. Falls back to
+    serial for 0/1 items. Pools are sized generously because the real concurrency cap is
+    the process-wide _AI_GATE around each AI call (see above), not the pool width — this
+    lets a nested inner pool still reach the gate instead of being throttled below it.
+    ``fn`` handles its own errors (the AI converters degrade to a scaffold), so a slow or
+    failed call never sinks the batch."""
     items = list(items)
     if len(items) <= 1:
         return [fn(x) for x in items]
@@ -647,6 +658,49 @@ try:
 except ValueError:
     _AI_MAX_ATTEMPTS = 4
 
+# Conversion is deterministic (temperature=0): the same prompt+system+model yields the
+# same code every time. So memoize model outputs process-wide, keyed on the full request.
+# This makes the edit→regenerate loop cheap — an unchanged model returns instantly on a
+# re-run instead of paying another 60–90s call. Bounded FIFO so a long session can't grow
+# unbounded. Disable with SFGLUE_AI_CACHE=0. First-run cost is unchanged (all misses).
+_AI_CACHE_ENABLED = os.environ.get("SFGLUE_AI_CACHE", "1").strip().lower() not in ("0", "false", "no")
+try:
+    _AI_CACHE_MAX = max(0, int(os.environ.get("SFGLUE_AI_CACHE_MAX", "1024")))
+except ValueError:
+    _AI_CACHE_MAX = 1024
+_AI_CACHE: "dict[str, str]" = {}
+_AI_CACHE_LOCK = threading.Lock()
+
+
+def _ai_cache_key(prompt, system_prompt, task):
+    """Stable key over everything that determines the output. Includes the model id so a
+    model swap can't serve stale code from a previous model."""
+    model = os.environ.get("BEDROCK_MODEL_ID", "") or os.environ.get("SFGLUE_AI_MODEL", "")
+    h = hashlib.sha256()
+    for part in (model, str(task or ""), system_prompt or "", prompt or ""):
+        h.update(part.encode("utf-8", "ignore"))
+        h.update(b"\x00")
+    return h.hexdigest()
+
+
+def _ai_cache_get(key):
+    if not _AI_CACHE_ENABLED:
+        return None
+    with _AI_CACHE_LOCK:
+        return _AI_CACHE.get(key)
+
+
+def _ai_cache_put(key, value):
+    if not _AI_CACHE_ENABLED or not value:
+        return
+    with _AI_CACHE_LOCK:
+        if key in _AI_CACHE:
+            return
+        if _AI_CACHE_MAX and len(_AI_CACHE) >= _AI_CACHE_MAX:
+            # FIFO evict: drop the oldest inserted key (dicts preserve insertion order).
+            _AI_CACHE.pop(next(iter(_AI_CACHE)), None)
+        _AI_CACHE[key] = value
+
 
 def _set_ai_failure(reason):
     _AI_FAIL.reason = reason
@@ -673,22 +727,34 @@ def _scaffold_reason_comment(call_ai):
 def _ai_text(call_ai, prompt, system_prompt, task):
     """Call AI for a code string; return None on failure (caller falls back to a scaffold).
 
-    Retries transient/throttling errors with exponential backoff + jitter — a burst of
-    concurrent per-model calls routinely trips a provider's rate limit, and without retry
-    every throttled model would silently degrade to an un-translated scaffold. On final
-    failure the reason is recorded (thread-local) so the scaffold can state it."""
+    Deterministic outputs (temperature=0) are memoized process-wide (see _AI_CACHE) so an
+    unchanged model returns instantly on a re-run. The actual call is bounded by the
+    process-wide _AI_GATE so nested conversion pools can't burst past _AI_WORKERS
+    concurrent provider calls. Retries transient/throttling errors with exponential backoff
+    + jitter — a burst of concurrent per-model calls routinely trips a provider's rate
+    limit, and without retry every throttled model would silently degrade to an
+    un-translated scaffold. On final failure the reason is recorded (thread-local) so the
+    scaffold can state it."""
     _set_ai_failure(None)
     if not call_ai:
         return None
+    cache_key = _ai_cache_key(prompt, system_prompt, task)
+    cached = _ai_cache_get(cache_key)
+    if cached is not None:
+        return cached
     last_exc = None
     for attempt in range(1, _AI_MAX_ATTEMPTS + 1):
         try:
             # 8000 (raised from 3000): a full notebook/dbt model can exceed 3000 output tokens,
             # which silently truncated the artifact at stop_reason=max_tokens.
-            out = call_ai(prompt, system_prompt=system_prompt, max_tokens=8000, temperature=0, task=task)
+            with _AI_GATE:  # cap concurrent provider calls across ALL (possibly nested) pools
+                out = call_ai(prompt, system_prompt=system_prompt, max_tokens=8000,
+                              temperature=0, task=task)
             out = out if isinstance(out, str) else ""
             out = re.sub(r"^```[a-zA-Z]*\n?|```$", "", out.strip()).strip()  # strip code fences
-            return out or None
+            out = out or None
+            _ai_cache_put(cache_key, out)
+            return out
         except Exception as exc:  # noqa: BLE001 — AI best-effort
             last_exc = exc
             retryable = any(h in str(exc).lower() for h in _RETRYABLE_HINTS)

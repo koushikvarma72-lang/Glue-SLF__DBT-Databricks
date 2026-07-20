@@ -48,6 +48,42 @@ After a green run, the sfglue app's **introspect with `include: ["workflows","tr
 sees the workflow, and `/api/sfglue/workflows/plan` converts it to the Databricks Job —
 the full reference→target orchestration story.
 
+## Run the MIGRATED pipeline as an Airflow DAG (target side → Databricks)
+
+Once the artifacts are pushed to the workspace (`POST /api/sfglue/workspace/push` →
+`/Shared/sfglue`), Airflow orchestrates the migrated pipeline on Databricks. The DAG is
+**provider-free**: it uses only `BashOperator` + the stdlib `run_databricks_task.py`
+helper (Databricks Jobs `runs/submit` REST API), so it imports and runs on the reference
+Airflow 2.10.5 with **no** `apache-airflow-providers-databricks` (that provider forces an
+Airflow 3.x upgrade and breaks the setup).
+
+Two DAG shapes, both provider-free:
+
+- **Per-task** (the full pipeline; no pre-built Databricks Job needed) — one task per
+  migrated notebook + per dbt layer, discovered from the pushed workspace:
+
+  ```bash
+  # in the airflow venv, with AIRFLOW_HOME set and `airflow standalone` running:
+  pip install dag-factory     # one-time
+  python setup_airflow_databricks.py --per-task \
+      --databricks-host https://dbc-xxxx.cloud.databricks.com \
+      --databricks-token dapi... \
+      --catalog workspace --warehouse <SQL_WAREHOUSE_ID> \
+      --airflow-password <admin-pw> --trigger --watch
+  ```
+  Writes `~/airflow/dags/cdl_migrated_databricks.yaml`, registers it, unpauses, triggers,
+  and watches to completion (exits 0 green / 1 red).
+
+- **Single-task** (triggers a pre-deployed sfglue Databricks Job via `run-now`) — the
+  original one-task variant; drop `--per-task` and it auto-discovers the Job by
+  `tags.sfglue_source`.
+
+The app can also emit the per-task YAML directly:
+`POST /api/sfglue/airflow/emit {"provider_free": true, "destination": {...}}`. The emitted
+file reads `DATABRICKS_HOST` / `DATABRICKS_TOKEN` / `CDL_HELPER` from the Airflow env
+(no secret baked into the YAML) — export those before triggering. The committed
+`cdl_migrated_databricks.yaml` is a regenerated reference copy of that output.
+
 ## Optional: real SFTP (AWS Transfer Family)
 
 The core-path boundary is the landing bucket. If the demo must show a real SFTP drop:

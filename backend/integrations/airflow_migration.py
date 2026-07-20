@@ -359,22 +359,35 @@ def emit_target_airflow_yaml(conversion: dict, destination: dict, *,
                              git_branch: str = "main",
                              git_provider: str = "gitHub",
                              dbt_cloud_conn_id: str = "dbt_cloud_default",
-                             dbt_cloud_job_id: str | None = None) -> dict:
+                             dbt_cloud_job_id: str | None = None,
+                             provider_free: bool = False,
+                             helper_path: str = "run_databricks_task.py",
+                             env_host_var: str = "DATABRICKS_HOST",
+                             env_token_var: str = "DATABRICKS_TOKEN") -> dict:
     """Build a dag-factory YAML DAG that orchestrates the MIGRATED pipeline:
 
         [wait_for_files] -> [batch_open] -> ingest notebooks
                          -> dbt (per-layer or dbt-Cloud job)
                          -> [batch_close] -> notify
 
-    Notebook steps are DatabricksSubmitRunOperator notebook_tasks against the pushed
-    /Shared/sfglue notebooks. The dbt stage depends on ``dbt_source``:
+    Two emission modes:
 
-      * "workspace" (default) — per-layer DatabricksSubmitRunOperator dbt_tasks reading
-        the project pushed to <root>/dbt (no repo needed; ideal for demos).
-      * "git" — same per-layer dbt_tasks but source=GIT with a git_source block
-        (git_url/branch/provider) — the project lives in the customer's repo.
-      * "dbt_cloud" — a single DbtCloudRunJobOperator that triggers the customer's
-        dbt Cloud job (dbt Cloud owns the project + layer ordering).
+    * ``provider_free=False`` (default) — notebook/dbt steps are
+      DatabricksSubmitRunOperator tasks (needs apache-airflow-providers-databricks).
+      The dbt stage depends on ``dbt_source``:
+        - "workspace" (default) — per-layer dbt_tasks reading the project pushed to
+          <root>/dbt (no repo needed; ideal for demos).
+        - "git" — per-layer dbt_tasks with source=GIT + a git_source block.
+        - "dbt_cloud" — a single DbtCloudRunJobOperator triggering a dbt Cloud job.
+
+    * ``provider_free=True`` — every notebook/dbt step is a BashOperator that shells
+      out to the stdlib ``helper_path`` (run_databricks_task.py) which submits the
+      task via the Databricks Jobs ``runs/submit`` REST API. This DAG imports and runs
+      on an Airflow that does NOT have the databricks provider installed (the reference
+      2.10.5 setup) — the provider would otherwise force an Airflow 3.x upgrade. Host/
+      token are read from the Airflow process env (``env_host_var``/``env_token_var``)
+      so no secret is baked into the YAML. (dbt_cloud is provider-based and is ignored
+      in this mode — dbt layers run through the same helper.)
 
     Pure — returns {"name", "yaml", "tasks", "layers", "dbt_source"}.
     """
@@ -403,14 +416,36 @@ def emit_target_airflow_yaml(conversion: dict, destination: dict, *,
     if not ingest_nbs:  # fall back to any non-framework notebook
         ingest_nbs = [n for n in notebooks if n not in framework]
 
+    # Provider-free bash prefix: call the stdlib helper, reading creds from the
+    # Airflow process env (no secret in the YAML). Double-quote the helper path so
+    # it survives spaces/parens (e.g. '.../USB Demo ( ... )/...') AND lets an
+    # env-var reference like $CDL_HELPER expand.
+    _bash_prefix = (f'python3 "{helper_path}" '
+                    f"--host ${env_host_var} --token ${env_token_var}")
+
     def _nb_op(path):
+        nb_path = f"{nb_root}/src/notebooks/{path.rsplit('.', 1)[0]}"
+        if provider_free:
+            cmd = f"{_bash_prefix} --notebook {nb_path}"
+            if catalog:
+                cmd += f" --catalog {catalog}"
+            return {"operator": "airflow.operators.bash.BashOperator",
+                    "bash_command": cmd}
         return {
             "operator": "airflow.providers.databricks.operators.databricks.DatabricksSubmitRunOperator",
             "databricks_conn_id": databricks_conn_id,
-            "notebook_task": {"notebook_path": f"{nb_root}/src/notebooks/{path.rsplit('.',1)[0]}"},
+            "notebook_task": {"notebook_path": nb_path},
         }
 
     def _dbt_op(layer):
+        if provider_free:
+            proj = dbt_dir if dbt_source == "workspace" else "dbt"
+            cmd = (f"{_bash_prefix} --dbt-project {proj} --dbt-select {layer} "
+                   f"--catalog {catalog} --warehouse {wh}")
+            if dbt_source == "git" and git_url:
+                cmd += f" --git-url {git_url} --git-branch {git_branch}"
+            return {"operator": "airflow.operators.bash.BashOperator",
+                    "bash_command": cmd}
         dbt_task = {
             "project_directory": dbt_dir if dbt_source == "workspace" else "dbt",
             "commands": ["dbt deps", f"dbt build --select {layer}"],
@@ -476,8 +511,10 @@ def emit_target_airflow_yaml(conversion: dict, destination: dict, *,
         tid = "ingest" if len(ingest_nbs) == 1 else f"ingest_{i+1}"
         tasks.append((tid, _nb_op(nb), [prev] if prev else []))
         prev = tid
-    if dbt_source == "dbt_cloud":
+    if dbt_source == "dbt_cloud" and not provider_free:
         # dbt Cloud owns the project + layer ordering — one triggering task.
+        # (provider-free mode has no stdlib dbt-Cloud path, so it falls through to
+        # per-layer helper tasks below.)
         tasks.append(("dbt_cloud_run", _dbt_cloud_op(), [prev] if prev else []))
         prev = "dbt_cloud_run"
     else:

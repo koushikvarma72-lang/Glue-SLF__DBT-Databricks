@@ -12,7 +12,7 @@
  * artifacts themselves are previewed here AND on the agent steps.
  *
  * The dependency-map graph and the table list stay mounted across right-pane tab
- * switches and inline selection so the d3 layout / scroll position isn't reset.
+ * switches and inline selection so the graph layout / scroll position isn't reset.
  */
 import { api } from '../api.js';
 import { store } from '../store.js';

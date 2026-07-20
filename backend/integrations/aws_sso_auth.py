@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+import threading
 import time
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 #                expires_at, access_token?, token_expires_at?}
 _SESSIONS: dict[str, dict] = {}
 _MAX_SESSIONS = 20
+_LOCK = threading.Lock()
 
 
 def _oidc(region: str):
@@ -40,13 +42,14 @@ def _sso(region: str):
 
 
 def _prune():
-    now = time.time()
-    dead = [k for k, s in _SESSIONS.items()
-            if now > s.get("expires_at", 0) and now > s.get("token_expires_at", 0)]
-    for k in dead:
-        _SESSIONS.pop(k, None)
-    while len(_SESSIONS) > _MAX_SESSIONS:
-        _SESSIONS.pop(next(iter(_SESSIONS)), None)
+    with _LOCK:
+        now = time.time()
+        dead = [k for k, s in _SESSIONS.items()
+                if now > s.get("expires_at", 0) and now > s.get("token_expires_at", 0)]
+        for k in dead:
+            _SESSIONS.pop(k, None)
+        while len(_SESSIONS) > _MAX_SESSIONS:
+            _SESSIONS.pop(next(iter(_SESSIONS)), None)
 
 
 def start(start_url: str, region: str) -> dict:
@@ -63,13 +66,14 @@ def start(start_url: str, region: str) -> dict:
         auth = oidc.start_device_authorization(
             clientId=reg["clientId"], clientSecret=reg["clientSecret"], startUrl=start_url)
         sid = secrets.token_urlsafe(24)
-        _SESSIONS[sid] = {
-            "region": region,
-            "client_id": reg["clientId"], "client_secret": reg["clientSecret"],
-            "device_code": auth["deviceCode"],
-            "interval": int(auth.get("interval", 5)),
-            "expires_at": time.time() + int(auth.get("expiresIn", 600)),
-        }
+        with _LOCK:
+            _SESSIONS[sid] = {
+                "region": region,
+                "client_id": reg["clientId"], "client_secret": reg["clientSecret"],
+                "device_code": auth["deviceCode"],
+                "interval": int(auth.get("interval", 5)),
+                "expires_at": time.time() + int(auth.get("expiresIn", 600)),
+            }
         return {"success": True, "session_id": sid,
                 "verification_uri": auth.get("verificationUriComplete") or auth.get("verificationUri"),
                 "user_code": auth.get("userCode", ""),
@@ -82,11 +86,13 @@ def start(start_url: str, region: str) -> dict:
 
 def poll(session_id: str) -> dict:
     """One CreateToken attempt → pending | authorized | error. Frontend calls on a timer."""
-    s = _SESSIONS.get(str(session_id or ""))
+    with _LOCK:
+        s = _SESSIONS.get(str(session_id or ""))
     if not s:
         return {"success": False, "error": "Unknown or expired SSO session — start again."}
     if time.time() > s["expires_at"] and not s.get("access_token"):
-        _SESSIONS.pop(session_id, None)
+        with _LOCK:
+            _SESSIONS.pop(session_id, None)
         return {"success": False, "error": "Login window expired — start again."}
     if s.get("access_token"):
         return {"success": True, "status": "authorized"}
@@ -103,14 +109,16 @@ def poll(session_id: str) -> dict:
         if "AuthorizationPending" in name or "SlowDown" in name:
             return {"success": True, "status": "pending"}
         if "Expired" in name:
-            _SESSIONS.pop(session_id, None)
+            with _LOCK:
+                _SESSIONS.pop(session_id, None)
             return {"success": False, "error": "Login window expired — start again."}
         return {"success": False, "error": f"SSO login failed: {exc}"}
 
 
 def accounts(session_id: str) -> dict:
     """List accounts + their roles for the authorized session."""
-    s = _SESSIONS.get(str(session_id or ""))
+    with _LOCK:
+        s = _SESSIONS.get(str(session_id or ""))
     if not s or not s.get("access_token"):
         return {"success": False, "error": "Not authorized yet."}
     try:
@@ -135,7 +143,8 @@ def accounts(session_id: str) -> dict:
 
 def credentials(session_id: str, account_id: str, role_name: str) -> dict:
     """GetRoleCredentials → short-lived keys (the only thing that leaves the server)."""
-    s = _SESSIONS.get(str(session_id or ""))
+    with _LOCK:
+        s = _SESSIONS.get(str(session_id or ""))
     if not s or not s.get("access_token"):
         return {"success": False, "error": "Not authorized yet."}
     try:

@@ -5,7 +5,8 @@ requests
 sqlglot
 snowflake-connector-python
 boto3
-psycopg2-binary
+pg8000>=1.30
 openpyxl
 pandas
 pyarrow
+pyyaml>=6.0

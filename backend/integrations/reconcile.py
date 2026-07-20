@@ -370,17 +370,28 @@ def reconcile(
                 rep.fail(f"{label}: {val}")
 
     # ---- 4. aggregate fingerprint ----------------------------------------- #
+    # column_differences = only the metrics that DON'T match (the failure signal).
+    # column_comparison  = the FULL before→after fingerprint for EVERY column
+    #   (source value, candidate value, match flag per metric) so the UI can show a
+    #   side-by-side "proof of conversion" table, not just the mismatches.
     col_diffs: dict[str, dict[str, Any]] = {}
+    col_cmp: dict[str, dict[str, Any]] = {}
     for col in agg_cols:
         s_a, c_a = s_fp["agg"].get(col, {}), c_fp["agg"].get(col, {})
         tol = col_tol.get(col, float_tol)
+        metrics: dict[str, Any] = {}
         for metric in ("nonnull", "nulls", "distinct", "min", "max", "sum", "sumsq"):
             if metric not in s_a and metric not in c_a:
                 continue
             sv, cv = s_a.get(metric), c_a.get(metric)
-            if not _values_equal(sv, cv, tol):
+            match = _values_equal(sv, cv, tol)
+            metrics[metric] = {"source": sv, "candidate": cv, "match": match}
+            if not match:
                 col_diffs.setdefault(col, {})[metric] = {"source": sv, "candidate": cv}
-    rep.checks["aggregate_fingerprint"] = {"column_differences": col_diffs}
+        if metrics:
+            col_cmp[col] = {"metrics": metrics, "match": all(m["match"] for m in metrics.values())}
+    rep.checks["aggregate_fingerprint"] = {
+        "column_differences": col_diffs, "column_comparison": col_cmp}
     for col, diffs in col_diffs.items():
         rep.fail(f"column '{col}' differs: {', '.join(sorted(diffs))}")
 

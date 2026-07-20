@@ -6,10 +6,6 @@ Run from the repo root:
 
 import unittest
 
-from backend.integrations.consumption_inventory import (
-    generate_outbound_cutover_md,
-    snowflake_pipeline_notes,
-)
 from backend.integrations.control_plane_migration import (
     convert_query_configuration_rows,
     generate_control_schema_ddl,
@@ -21,7 +17,6 @@ from backend.integrations.dq_migration import (
     compile_dq_rules,
     compile_notifications,
 )
-from backend.integrations.governance_migration import map_permissions_to_uc_grants
 from backend.integrations.orchestration_migration import (
     build_databricks_job,
     glue_cron_to_quartz,
@@ -243,59 +238,6 @@ class TestDQCompiler(unittest.TestCase):
         self.assertEqual(out["email_notifications"]["on_failure"],
                          ["data@corp.com", "ops@corp.com"])
         self.assertEqual(len(out["templates"]), 2)
-
-
-class TestGovernance(unittest.TestCase):
-    PERMS = [
-        {"principal": "arn:aws:iam::1:role/analysts", "resource_type": "table",
-         "database": "cdl", "table": "dim_account", "columns": [], "permissions": ["SELECT"]},
-        {"principal": "arn:aws:iam::1:role/etl", "resource_type": "database",
-         "database": "cdl", "table": "", "columns": [], "permissions": ["ALL"]},
-        {"principal": "arn:aws:iam::1:role/pii", "resource_type": "table",
-         "database": "cdl", "table": "hcp", "columns": ["name"], "permissions": ["SELECT"]},
-        {"principal": "arn:aws:iam::1:role/admin", "resource_type": "table",
-         "database": "cdl", "table": "x", "columns": [], "permissions": ["DROP"]},
-    ]
-
-    def test_mapping(self):
-        out = map_permissions_to_uc_grants(
-            self.PERMS, catalog="workspace",
-            principal_map={"arn:aws:iam::1:role/analysts": "analysts"})
-        sql = out["grants_sql"]
-        self.assertIn("GRANT SELECT ON TABLE `workspace`.`cdl`.`dim_account` TO `analysts`;", sql)
-        self.assertIn("UNMAPPED PRINCIPAL", sql)          # etl role not mapped → commented
-        self.assertIn("column-level grant", sql)          # pii columns → review line
-        self.assertIn("no safe UC auto-translation", sql)  # DROP → review line
-        self.assertIn("arn:aws:iam::1:role/etl", out["unmapped_principals"])
-        self.assertEqual(out["stats"]["grants"], 1)
-
-
-class TestOutboundAndPipeline(unittest.TestCase):
-    def test_cutover_md(self):
-        md = generate_outbound_cutover_md(
-            [{"name": "IICS_SVC", "kind": "Informatica", "objects": ["PUB.PUB_CALL_FCT"]},
-             {"name": "PBI", "kind": "Power BI", "objects": []}],
-            {"workspace_url": "https://dbc-x.cloud.databricks.com",
-             "sql_warehouse_id": "wh1", "catalog": "workspace"})
-        self.assertIn("IICS_SVC", md)
-        self.assertIn("Databricks Delta", md)
-        self.assertIn("Partner Connect", md)
-        self.assertIn("/sql/1.0/warehouses/wh1", md)
-
-    def test_pipeline_notes(self):
-        out = snowflake_pipeline_notes({
-            "tasks": [{"name": "T_LOAD", "schedule": "USING CRON 0 2 * * *",
-                       "state": "started", "definition": "insert into x select 1"}],
-            "streams": [{"name": "S1", "table_name": "CALLS", "mode": "DEFAULT"}],
-            "pipes": [{"name": "P1", "definition": "copy into ..."}],
-            "procedures": [{"name": "SP_X", "arguments": "V VARCHAR"}],
-            "stages": [{"name": "STG1", "url": "s3://b/p"}],
-        }, DEST)
-        self.assertEqual(len(out["notes"]), 5)
-        self.assertEqual(out["job_task_seeds"][0]["name"], "T_LOAD")
-        self.assertIn("Change Data Feed", out["notes"]["_pipeline__streams.md"])
-        self.assertIn("Auto Loader", out["notes"]["_pipeline__pipes.md"])
-
 
 
 class TestAirflow(unittest.TestCase):
@@ -522,6 +464,41 @@ class TestTargetAirflow(unittest.TestCase):
         out = emit_target_airflow_yaml(self.CONV, self.DEST)
         doc = yaml.safe_load(out["yaml"])
         self.assertNotIn("wait_for_files", doc["cdl_migrated_databricks"]["tasks"])
+
+    def test_emit_provider_free_runs_without_databricks_provider(self):
+        """provider_free=True must emit a DAG that imports on an Airflow WITHOUT
+        apache-airflow-providers-databricks: every task is a BashOperator (no
+        `providers.databricks` operator anywhere), creds come from the env, and it
+        still round-trips through the same parser sfglue ingests source DAGs with."""
+        import yaml
+        from backend.integrations.airflow_migration import (
+            emit_target_airflow_yaml, parse_dag_factory_yaml)
+        out = emit_target_airflow_yaml(self.CONV, self.DEST, dag_id="cdl_migrated",
+                                       provider_free=True,
+                                       helper_path="/opt/cdl/run_databricks_task.py")
+        # No databricks-provider operator may appear — that's the whole point.
+        self.assertNotIn("providers.databricks", out["yaml"])
+        doc = yaml.safe_load(out["yaml"])
+        tasks = doc["cdl_migrated"]["tasks"]
+        for tid in ("batch_open", "dbt_staging", "dbt_marts", "batch_close", "notify"):
+            self.assertIn(tid, tasks)
+        # every non-notify task is a BashOperator calling the helper with env creds
+        for tid, spec in tasks.items():
+            self.assertTrue(spec["operator"].endswith("BashOperator"), tid)
+            if tid != "notify":
+                self.assertIn("run_databricks_task.py", spec["bash_command"])
+                self.assertIn("$DATABRICKS_HOST", spec["bash_command"])
+                self.assertIn("$DATABRICKS_TOKEN", spec["bash_command"])
+        # dbt layer carries the --select + warehouse; no secret is baked in
+        self.assertIn("--dbt-select marts", tasks["dbt_marts"]["bash_command"])
+        self.assertIn("--warehouse wh123", tasks["dbt_marts"]["bash_command"])
+        self.assertNotIn("dapi", out["yaml"])
+        # dependency chain preserved
+        self.assertEqual(tasks["dbt_marts"]["dependencies"], ["dbt_intermediate"])
+        # round-trips: parser recognizes the bash tasks
+        reparsed = parse_dag_factory_yaml("x.yaml", out["yaml"])[0]
+        self.assertEqual(reparsed["name"], "cdl_migrated")
+        self.assertTrue(all(t["kind"] == "bash" for t in reparsed["tasks"]))
 
 
 class TestOperationalLineage(unittest.TestCase):

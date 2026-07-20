@@ -28,6 +28,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,25 @@ logger = logging.getLogger(__name__)
 _JOBS: dict = {}
 _JOBS_LOCK = threading.Lock()
 _MAX_LOG_LINES = 5000
+_MAX_JOBS = 20
+_JOB_TTL_SECS = 30 * 60  # drop finished jobs whose end-time is older than this
+
+
+def _prune_jobs() -> None:
+    """Evict old finished jobs. Caller MUST hold _JOBS_LOCK."""
+    now = time.time()
+    stale = [jid for jid, j in _JOBS.items()
+             if j.get("finished") and (now - j.get("ended_at", now)) > _JOB_TTL_SECS]
+    for jid in stale:
+        _JOBS.pop(jid, None)
+    if len(_JOBS) > _MAX_JOBS:
+        finished = sorted(
+            (jid for jid, j in _JOBS.items() if j.get("finished")),
+            key=lambda jid: _JOBS[jid].get("ended_at", 0))
+        for jid in finished:
+            if len(_JOBS) <= _MAX_JOBS:
+                break
+            _JOBS.pop(jid, None)
 
 
 def _job(job_id: str):
@@ -98,6 +118,15 @@ def _parse_run_results(project_dir: str) -> list[dict]:
         return out
     except Exception:  # noqa: BLE001 — absent/partial file on early failure
         return []
+
+
+def _run_and_cleanup(job: dict, project_dir: str, env: dict) -> None:
+    """Run the dbt steps, then always remove the temp project dir (success/error/cancel)."""
+    try:
+        _run_steps(job, project_dir, env)
+    finally:
+        job["ended_at"] = time.time()
+        shutil.rmtree(project_dir, ignore_errors=True)
 
 
 def _run_steps(job: dict, project_dir: str, env: dict) -> None:
@@ -182,8 +211,9 @@ def start_dbt_run(models: dict, sources_yml: str, destination: dict,
            "logs": [], "models": [], "finished": False, "cancelled": False,
            "proc": None, "dir": project_dir, "lock": threading.Lock()}
     with _JOBS_LOCK:
+        _prune_jobs()
         _JOBS[job_id] = job
-    threading.Thread(target=_run_steps, args=(job, project_dir, env),
+    threading.Thread(target=_run_and_cleanup, args=(job, project_dir, env),
                      name=f"dbt-local-{job_id}", daemon=True).start()
     logger.info("dbt-local: started run %s (%d model(s)) in %s", job_id, len(models), project_dir)
     return {"success": True, "jobId": job_id}
@@ -220,4 +250,5 @@ def cancel(job_id: str) -> dict:
             proc.terminate()
         except Exception:  # noqa: BLE001
             pass
+    shutil.rmtree(job.get("dir") or "", ignore_errors=True)
     return {"success": True}

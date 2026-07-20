@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import os
@@ -325,17 +326,33 @@ def _structured_execution_error(message: str, stage: str, statement_id: str | No
     return payload
 
 
+def _accepts_timeout(method) -> bool:
+    """True if ``method`` accepts a ``timeout`` keyword (explicitly or via ``**kwargs``).
+
+    Explicit signature inspection replaces the old "call, catch TypeError, retry
+    without timeout" heuristic, which could misclassify an unrelated ``TypeError``
+    raised inside the method and silently retry the call unguarded by a timeout.
+    """
+    try:
+        params = inspect.signature(method).parameters.values()
+    except (TypeError, ValueError):
+        # Builtin / C callable with no introspectable signature — don't risk passing
+        # an unexpected kwarg.
+        return False
+    for p in params:
+        if p.kind is inspect.Parameter.VAR_KEYWORD:
+            return True
+        if p.name == "timeout" and p.kind in (
+                inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY):
+            return True
+    return False
+
+
 def _call_api(method, *args, stage: str, **kwargs) -> dict:
+    if "timeout" in kwargs and not _accepts_timeout(method):
+        kwargs.pop("timeout", None)
     try:
         return method(*args, **kwargs)
-    except TypeError:
-        kwargs.pop("timeout", None)
-        try:
-            return method(*args, **kwargs)
-        except socket.timeout:
-            return _structured_execution_error(FRIENDLY_DATABRICKS_TIMEOUT, stage)
-        except Exception as exc:
-            return _structured_execution_error(str(exc) or "Databricks API call failed.", stage)
     except socket.timeout:
         return _structured_execution_error(FRIENDLY_DATABRICKS_TIMEOUT, stage)
     except Exception as exc:

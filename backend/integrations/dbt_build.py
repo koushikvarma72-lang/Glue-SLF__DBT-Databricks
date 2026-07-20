@@ -24,6 +24,8 @@ from __future__ import annotations
 import logging
 import re
 
+from backend.integrations.sfglue_sql_guard import UnsafeSqlError, assert_safe_ddl
+
 logger = logging.getLogger(__name__)
 
 # Gold-layer naming (dimensional / serving). Kept in sync with the same idea in
@@ -354,14 +356,25 @@ def attempt_build_with_repair(run_sql, call_ai, statement, introspect_cols, *, m
     if "CANNOT_WRITE_INTO_VIEW" in str(last_error).upper():
         m = re.search(r"(?i)create\s+or\s+replace\s+table\s+([`\w.]+)", statement)
         if m:
+            drop_stmt = f"DROP VIEW IF EXISTS {m.group(1)}"
             try:
-                run_sql(f"DROP VIEW IF EXISTS {m.group(1)}")
+                # Re-guard the client-editable CREATE before we re-run it. The DROP is
+                # server-templated from a regex-restricted identifier (the capture group
+                # cannot contain a separator/space), so it can't carry a piggy-backed
+                # statement; assert_safe_ddl is CREATE-only and can't validate a DROP, so
+                # guarding here means validating the CREATE that will actually run.
+                assert_safe_ddl(statement, label="build statement")
+                run_sql(drop_stmt)
                 rerun = run_sql(statement) or {}
                 if rerun.get("success"):
                     return {"status": "repaired",
                             "message": "created (dropped conflicting view of the same name)",
                             "statement": statement, "repair_attempts": 0}
                 last_error = rerun.get("message") or rerun.get("error") or last_error
+            except UnsafeSqlError as exc:
+                # Statement failed the safety gate — do not execute; surface the reason.
+                logger.warning("build pre-repair: statement blocked by SQL guard: %s", exc)
+                last_error = f"blocked by SQL guard: {exc}"
             except Exception as exc:  # noqa: BLE001 — fall through to AI repair
                 logger.warning("build pre-repair: drop-view fallback failed: %s", exc)
 
@@ -395,6 +408,16 @@ def attempt_build_with_repair(run_sql, call_ai, statement, introspect_cols, *, m
             # AI gave nothing usable / no change → stop; nothing left to try.
             logger.info("build auto-repair: attempt %d produced no usable change; giving up", attempt)
             return {"status": "failed", "message": last_error, "repair_attempts": attempt - 1}
+
+        try:
+            # The AI output is untrusted — enforce it's a single CREATE before running.
+            assert_safe_ddl(repaired_sql, label="AI-repaired SQL")
+        except UnsafeSqlError as exc:
+            # Not a single CREATE (e.g. a DROP or multiple statements) — never execute it.
+            logger.warning("build auto-repair: attempt %d rejected by SQL guard: %s", attempt, exc)
+            last_error = f"AI repair blocked by SQL guard: {exc}"
+            current_sql = repaired_sql
+            continue
 
         rerun = run_sql(repaired_sql) or {}
         if rerun.get("success"):

@@ -2,26 +2,20 @@
  * Snowflake/Glue → Databricks/DBT — Step 2: Check lineage.
  *
  * Builds a source→Snowflake dataflow graph from the Glue catalog + ETL job
- * scripts and Snowflake object dependencies, renders it as collapsible groups by
- * medallion layer × schema (SOURCE→BRONZE→SILVER→GOLD), and surfaces duplicate-table
- * / overlapping-logic findings plus consolidation recommendations (deterministic +
- * AI). Reviewing this is how the user spots duplication before choosing what to migrate.
+ * scripts and Snowflake object dependencies, renders it as an interactive flow
+ * (SOURCE→BRONZE→SILVER→GOLD), and surfaces duplicate-table / overlapping-logic
+ * findings plus consolidation recommendations (deterministic + AI). Reviewing this
+ * is how the user spots duplication before choosing what to migrate.
  */
 import { api } from '../api.js';
 import { store } from '../store.js';
-import { renderLineageGroups, setAllGroups } from '../components/lineageGroups.js';
-import { renderMermaidLineage, toggleMermaidFit, downloadGraphImage } from '../components/mermaidLineage.js';
 import { renderLineageFlow } from '../components/lineageFlow.js';
-import { renderLineageOps, renderOpsHeader, augmentLineageWithOps } from '../components/lineageOps.js';
+import { renderOpsHeader, augmentLineageWithOps } from '../components/lineageOps.js';
 import { esc } from '../components/ui.js';
 import { notify } from '../components/notify.js';
 import { confirmModal } from '../components/modal.js';
 
-// 'flow' = readable interactive card lanes (default); 'diagram' = Mermaid flowchart;
-// 'groups' = collapsible layer×schema lanes. Module-scoped so it survives page
-// re-renders within a session.
-let sfgLineageView = 'flow';
-let sfgOpsGraph = null;   // cached operational-lineage graph (fetched lazily on first Ops view)
+let sfgOpsGraph = null;   // cached operational-lineage graph (fetched lazily, augments the Flow view)
 
 const SEVERITY_COLOR = { high: '#dc2626', medium: '#ca8a04', low: '#16a34a' };
 const LEGEND = [
@@ -30,30 +24,6 @@ const LEGEND = [
   ['silver', '#0f766e', 'Silver — cleaned / conformed'],
   ['gold', '#ca8a04', 'Gold — marts / views'],
 ];
-
-// Click-drag panning for any natively-scrolling container (Groups lanes). A real
-// drag swallows the trailing click so cards/groups underneath don't toggle.
-function enableDragPan(el) {
-  if (!el || el._dragPan) return;
-  el._dragPan = true;
-  el.style.cursor = 'grab';
-  let panning = false, dragged = false, sx = 0, sy = 0, sl = 0, st = 0;
-  el.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return;
-    panning = true; dragged = false;
-    sx = e.clientX; sy = e.clientY; sl = el.scrollLeft; st = el.scrollTop;
-  });
-  window.addEventListener('mousemove', (e) => {
-    if (!panning) return;
-    const dx = e.clientX - sx, dy = e.clientY - sy;
-    if (!dragged && Math.hypot(dx, dy) > 4) { dragged = true; el.style.cursor = 'grabbing'; }
-    if (dragged) { el.scrollLeft = sl - dx; el.scrollTop = st - dy; }
-  });
-  window.addEventListener('mouseup', () => { panning = false; el.style.cursor = 'grab'; });
-  el.addEventListener('click', (e) => {
-    if (dragged) { dragged = false; e.stopPropagation(); e.preventDefault(); }
-  }, true);
-}
 
 function buildPayloadConfigs(state) {
   const sf = state.sfGlueSnowflakeConfig || {};
@@ -90,12 +60,9 @@ function renderDuplicates(duplicates) {
   if (!duplicates || !duplicates.length) {
     return `<div style="color:var(--text-muted);font-size:13px">No tables appear in more than one system.</div>`;
   }
-  return `
-    <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
-      Same logical table found in two places — usually the Glue/S3 gold layer and the copy loaded into Snowflake.
-      “Column-name match” compares schema column names, not the underlying data.
-    </div>
-    ${duplicates.map(g => `
+  // These lists are routinely 15-20+ tables long. Keep them in a fixed-height
+  // scrollable box so the panel stays compact instead of running the page down.
+  const cards = duplicates.map(g => `
     <div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;background:var(--bg-primary)">
       <div style="display:flex;align-items:center;gap:8px">
         <strong style="font-size:13px">${esc(g.base_name)}</strong>
@@ -105,7 +72,13 @@ function renderDuplicates(duplicates) {
       <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">
         ${g.members.map(m => `${esc(m.full_name)} <span style="color:var(--text-muted)">[${esc(m.system)}]</span>`).join(' · ')}
       </div>
-    </div>`).join('')}`;
+    </div>`).join('');
+  return `
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
+      Same logical table found in two places — usually the Glue/S3 gold layer and the copy loaded into Snowflake.
+      “Column-name match” compares schema column names, not the underlying data.
+    </div>
+    <div style="max-height:420px;overflow:auto;padding-right:4px">${cards}</div>`;
 }
 
 function renderRecommendations(recs, aiUsed, aiStatus, aiError) {
@@ -119,20 +92,42 @@ function renderRecommendations(recs, aiUsed, aiStatus, aiError) {
     : status === 'error' ? `Structural analysis — AI call failed${aiError ? ': ' + esc(aiError) : ''}. If using Bedrock, your SSO may have expired (run \`aws sso login\`); then re-run Analyze lineage.`
     : status === 'empty' ? 'Structural analysis — the AI returned no recommendations. Re-run Analyze lineage to retry.'
     : 'Structural analysis — no AI provider configured. Connect one via ⚙ Settings, then re-run Analyze lineage.';
+
+  const card = (r) => `
+    <div style="border-left:3px solid ${SEVERITY_COLOR[r.severity] || '#999'};padding:8px 12px;margin-bottom:8px;background:var(--bg-primary);border-radius:0 6px 6px 0">
+      <div style="display:flex;align-items:center;gap:8px">
+        <strong style="font-size:13px">${esc(r.title)}</strong>
+        <span style="font-size:10px;text-transform:uppercase;color:${SEVERITY_COLOR[r.severity] || '#999'}">${esc(r.severity || '')}</span>
+        ${r.source === 'ai' ? '<span class="badge badge-info" style="font-size:10px">AI</span>' : ''}
+      </div>
+      ${r.detail ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">${esc(r.detail)}</div>` : ''}
+      ${(r.members && r.members.length) ? `<div style="font-size:11px;color:var(--text-muted);margin-top:4px">${r.members.map(esc).join(' · ')}</div>` : ''}
+    </div>`;
+
+  // The deterministic baseline emits ONE "materialized in both Snowflake and Glue" rec
+  // per duplicate table — routinely 15-20+ near-identical HIGH cards that all say the same
+  // thing and mirror the "Tables in both systems" list. Collapse them into a single
+  // scrollable dropdown so the higher-value AI/other recs above aren't buried.
+  const isPerTableDup = (r) => r.source !== 'ai' && /materialized in both/i.test(r.title || '');
+  const bulk = recs.filter(isPerTableDup);
+  const rest = recs.filter((r) => !isPerTableDup(r));
+
+  const bulkHtml = bulk.length ? `
+    <details style="border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--bg-primary)">
+      <summary style="cursor:pointer;padding:9px 12px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;list-style:none">
+        <span style="color:var(--text-muted);font-size:11px">▸</span>
+        Consolidate ${bulk.length} table${bulk.length === 1 ? '' : 's'} materialized in both Snowflake &amp; Glue
+        <span style="font-size:10px;text-transform:uppercase;color:${SEVERITY_COLOR.high}">high</span>
+      </summary>
+      <div style="max-height:340px;overflow:auto;padding:2px 10px 8px">${bulk.map(card).join('')}</div>
+    </details>` : '';
+
   return `
     <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
       ${subtitle}
     </div>
-    ${recs.map(r => `
-      <div style="border-left:3px solid ${SEVERITY_COLOR[r.severity] || '#999'};padding:8px 12px;margin-bottom:8px;background:var(--bg-primary);border-radius:0 6px 6px 0">
-        <div style="display:flex;align-items:center;gap:8px">
-          <strong style="font-size:13px">${esc(r.title)}</strong>
-          <span style="font-size:10px;text-transform:uppercase;color:${SEVERITY_COLOR[r.severity] || '#999'}">${esc(r.severity || '')}</span>
-          ${r.source === 'ai' ? '<span class="badge badge-info" style="font-size:10px">AI</span>' : ''}
-        </div>
-        ${r.detail ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">${esc(r.detail)}</div>` : ''}
-        ${(r.members && r.members.length) ? `<div style="font-size:11px;color:var(--text-muted);margin-top:4px">${r.members.map(esc).join(' · ')}</div>` : ''}
-      </div>`).join('')}`;
+    ${rest.map(card).join('')}
+    ${bulkHtml}`;
 }
 
 export function renderSfGlueLineagePage(container) {
@@ -179,22 +174,6 @@ export function renderSfGlueLineagePage(container) {
           ${(data.lineage && data.lineage.nodes && data.lineage.nodes.length) ? `
             <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px">
               <div style="display:flex;gap:14px;flex-wrap:wrap">${legendHtml}</div>
-              <div style="display:flex;align-items:center;gap:8px">
-                <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden" role="group" aria-label="Lineage view">
-                  <button id="sfglue-view-flow" style="padding:4px 12px;font-size:12px;border:none;cursor:pointer;${sfgLineageView === 'flow' ? 'background:var(--success,#2f7d5b);color:#fff' : 'background:var(--bg-surface,#fff);color:var(--text-secondary,#64748b)'}" title="Readable flow: hover a table to trace its pipeline; Glue jobs sit on the arrows">🌊 Flow</button>
-                  <button id="sfglue-view-diagram" style="padding:4px 12px;font-size:12px;border:none;cursor:pointer;${sfgLineageView === 'diagram' ? 'background:var(--success,#2f7d5b);color:#fff' : 'background:var(--bg-surface,#fff);color:var(--text-secondary,#64748b)'}" title="Flow diagram: source → gold, same table in both systems merged">🗺 Diagram</button>
-                  <button id="sfglue-view-groups" style="padding:4px 12px;font-size:12px;border:none;cursor:pointer;${sfgLineageView === 'groups' ? 'background:var(--success,#2f7d5b);color:#fff' : 'background:var(--bg-surface,#fff);color:var(--text-secondary,#64748b)'}" title="Collapsible lanes grouped by medallion layer and schema">🏛 Groups</button>
-                  <button id="sfglue-view-ops" style="padding:4px 12px;font-size:12px;border:none;cursor:pointer;${sfgLineageView === 'ops' ? 'background:var(--success,#2f7d5b);color:#fff' : 'background:var(--bg-surface,#fff);color:var(--text-secondary,#64748b)'}" title="Operational flow: Glue job chain + RDS control tables + per-table data edges from config + source-health">🔧 Ops flow</button>
-                </div>
-                <span id="sfglue-diagram-tools" style="display:${sfgLineageView === 'diagram' ? 'inline-flex' : 'none'};align-items:center;gap:8px">
-                  <button class="btn btn-secondary" id="sfglue-graph-fit" style="padding:4px 10px" title="Fit the whole diagram to the box">Fit</button>
-                  <button class="btn btn-secondary" id="sfglue-graph-download" style="padding:4px 10px" title="Download the diagram as a PNG">⬇ PNG</button>
-                </span>
-                <span id="sfglue-groups-tools" style="display:${sfgLineageView === 'groups' ? 'inline-flex' : 'none'};align-items:center;gap:8px">
-                  <button class="btn btn-secondary" id="sfglue-expand-all" style="padding:4px 10px" title="Expand every group">Expand all</button>
-                  <button class="btn btn-secondary" id="sfglue-collapse-all" style="padding:4px 10px" title="Collapse every group">Collapse all</button>
-                </span>
-              </div>
             </div>
             <div id="sfglue-ops-header"></div>
             <div id="sfglue-graph" style="border:1px solid var(--border);border-radius:10px;background:var(--bg-surface);padding:14px;height:560px;overflow:hidden"></div>
@@ -240,9 +219,7 @@ export function renderSfGlueLineagePage(container) {
       </div>
     </div>`;
 
-  // Mount the graph in the selected view: Diagram (Mermaid, duplicates merged) or
-  // Force (draggable D3 force layout) — toggled like the Qlik Upload & Analyze graph.
-  // Show a Glue job's script + metadata in a modal (clicked from either view).
+  // Show a Glue job's script + metadata in a modal.
   let jobModalOpener = null;  // a11y: element to restore focus to on close
   const showJobDetails = (name) => {
     const scripts = (data && data.glue_scripts) || {};
@@ -283,69 +260,18 @@ export function renderSfGlueLineagePage(container) {
     const el = container.querySelector('#sfglue-graph');
     const header = container.querySelector('#sfglue-ops-header');
     if (!el) return;
-    if (sfgLineageView !== 'ops' && (!data || !data.lineage)) return;
-    // The control-plane + execution-chain strips sit above the graph in Flow view
-    // (the Ops view renders its own copies inline).
+    if (!data || !data.lineage) return;
     if (header) {
-      if (sfgLineageView === 'flow' && sfgOpsGraph) {
-        renderOpsHeader(header, sfgOpsGraph, { onJobClick: showJobDetails });
-      } else {
-        header.innerHTML = '';
-      }
+      if (sfgOpsGraph) renderOpsHeader(header, sfgOpsGraph, { onJobClick: showJobDetails });
+      else header.innerHTML = '';
     }
-    if (sfgLineageView === 'ops') {
-      // Flow full-height in the page — no nested scroll box (avoid window-in-window).
-      el.style.height = 'auto'; el.style.overflow = 'visible';
-      if (sfgOpsGraph) { renderLineageOps(el, sfgOpsGraph, { onJobClick: showJobDetails }); return; }
-      el.innerHTML = '<div style="padding:24px;font-size:13px;color:var(--text-muted)">Building operational lineage from the Glue Workflow + RDS control tables…</div>';
-      ensureOpsGraph();
-      return;
-    }
-    // Restore the fixed graph box for the canvas-style views (Ops sets its own above).
     el.style.height = '560px';
-    if (sfgLineageView === 'flow') {
-      el.style.overflow = 'hidden';          // the inner .lf-scroll handles scrolling
-      ensureOpsGraph();                      // strips + config edges arrive async, then re-mount
-      const flowLineage = sfgOpsGraph ? augmentLineageWithOps(data.lineage, sfgOpsGraph) : data.lineage;
-      renderLineageFlow(el, flowLineage, { onJobClick: showJobDetails });
-    } else if (sfgLineageView === 'diagram') {
-      el.style.overflow = 'hidden';          // pan/zoom replaces scrollbars
-      // isCurrent lets the async mermaid render bail if the user switches views
-      // before it resolves (otherwise its deferred write clobbers the new view).
-      renderMermaidLineage(el, data.lineage, { duplicates: data.duplicates || [], onJobClick: showJobDetails, isCurrent: () => sfgLineageView === 'diagram' });
-    } else {
-      el.style.overflow = 'auto';            // lanes scroll natively
-      renderLineageGroups(el, data.lineage, { onJobClick: showJobDetails });
-      enableDragPan(el);
-    }
+    el.style.overflow = 'hidden';          // the inner .lf-scroll handles scrolling
+    ensureOpsGraph();                      // strips + config edges arrive async, then re-mount
+    const flowLineage = sfgOpsGraph ? augmentLineageWithOps(data.lineage, sfgOpsGraph) : data.lineage;
+    renderLineageFlow(el, flowLineage, { onJobClick: showJobDetails });
   };
   mountLineageGraph();
-
-  const setLineageView = (v) => {
-    if (sfgLineageView === v) return;
-    sfgLineageView = v;
-    const on = 'background:var(--success,#2f7d5b);color:#fff';
-    const off = 'background:var(--bg-surface,#fff);color:var(--text-secondary,#64748b)';
-    const f = container.querySelector('#sfglue-view-flow');
-    const d = container.querySelector('#sfglue-view-diagram');
-    const g = container.querySelector('#sfglue-view-groups');
-    const o = container.querySelector('#sfglue-view-ops');
-    if (f) f.style.cssText += ';' + (v === 'flow' ? on : off);
-    if (d) d.style.cssText += ';' + (v === 'diagram' ? on : off);
-    if (g) g.style.cssText += ';' + (v === 'groups' ? on : off);
-    if (o) o.style.cssText += ';' + (v === 'ops' ? on : off);
-    const dt = container.querySelector('#sfglue-diagram-tools');
-    const gt = container.querySelector('#sfglue-groups-tools');
-    if (dt) dt.style.display = v === 'diagram' ? 'inline-flex' : 'none';
-    if (gt) gt.style.display = v === 'groups' ? 'inline-flex' : 'none';
-    mountLineageGraph();
-  };
-  container.querySelector('#sfglue-view-flow')?.addEventListener('click', () => setLineageView('flow'));
-  container.querySelector('#sfglue-view-diagram')?.addEventListener('click', () => setLineageView('diagram'));
-  container.querySelector('#sfglue-view-groups')?.addEventListener('click', () => setLineageView('groups'));
-  container.querySelector('#sfglue-view-ops')?.addEventListener('click', () => setLineageView('ops'));
-  container.querySelector('#sfglue-graph-fit')?.addEventListener('click', () => toggleMermaidFit(container.querySelector('#sfglue-graph')));
-  container.querySelector('#sfglue-graph-download')?.addEventListener('click', () => downloadGraphImage(container.querySelector('#sfglue-graph'), { filename: 'snowflake-glue-lineage', format: 'png' }));
 
   const jobModal = container.querySelector('#sfglue-job-modal');
   const jobModalOpen = () => jobModal && jobModal.style.display !== 'none';
@@ -374,8 +300,6 @@ export function renderSfGlueLineagePage(container) {
   });
 
   container.querySelector('#sfglue-back')?.addEventListener('click', () => store.navigate('sfglue-connect'));
-  container.querySelector('#sfglue-expand-all')?.addEventListener('click', () => setAllGroups(container.querySelector('#sfglue-graph'), true));
-  container.querySelector('#sfglue-collapse-all')?.addEventListener('click', () => setAllGroups(container.querySelector('#sfglue-graph'), false));
   container.querySelector('#sfglue-to-review')?.addEventListener('click', () => store.navigate('sfglue-review'));
 
   container.querySelector('#sfglue-analyze')?.addEventListener('click', async () => {
@@ -415,5 +339,5 @@ export function renderSfGlueLineagePage(container) {
 }
 
 export function destroySfGlueLineagePage() {
-  // The medallion-lanes view is a plain SVG in the container; nothing to tear down.
+  // The flow view is plain DOM in the container; nothing to tear down.
 }

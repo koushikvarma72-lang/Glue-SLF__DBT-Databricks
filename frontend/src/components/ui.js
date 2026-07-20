@@ -286,7 +286,7 @@ export function reviewQueuePanel(items, { title = 'Needs human review before shi
       ${it.detail ? `<span style="flex-basis:100%;color:var(--text-muted);font-size:11px;line-height:1.4;overflow-wrap:anywhere">${esc(it.detail)}</span>` : ''}
     </div>`;
   }).join('');
-  return `<details open data-review-queue style="display:block;box-sizing:border-box;width:100%;max-width:100%;border:1px solid var(--border);border-left:3px solid var(--error,#dc2626);border-radius:10px;background:var(--bg-surface);font-size:12px;margin-bottom:12px;overflow:hidden">
+  return `<details data-review-queue style="display:block;box-sizing:border-box;width:100%;max-width:100%;border:1px solid var(--border);border-left:3px solid var(--error,#dc2626);border-radius:10px;background:var(--bg-surface);font-size:12px;margin-bottom:12px;overflow:hidden">
     <summary style="box-sizing:border-box;padding:10px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span style="font-weight:700;color:var(--text-primary);font-size:13px">⚠ ${esc(title)}</span>
       <span style="color:var(--text-muted)">— ${list.length} item(s)</span>
@@ -334,16 +334,74 @@ export function wireReviewQueue(container, conv, items) {
 export function reconcileResultsPanel(results) {
   const list = results || [];
   if (!list.length) return '';
+
+  // Format a fingerprint value for the before/after table (numbers get trimmed,
+  // null/undefined shown explicitly). Kept short so the comparison stays scannable.
+  const fmt = (v) => {
+    if (v === null || v === undefined) return '∅';
+    if (typeof v === 'number') {
+      if (Number.isInteger(v)) return String(v);
+      return (Math.round(v * 1e4) / 1e4).toString();
+    }
+    return esc(String(v));
+  };
+
+  // Per-column "before → after" proof table from the aggregate fingerprint's
+  // column_comparison (source vs candidate for every column, with a match flag).
+  const comparisonTable = (r) => {
+    const agg = (r.checks && r.checks.aggregate_fingerprint) || {};
+    const cmp = agg.column_comparison || {};
+    const cols = Object.keys(cmp);
+    if (!cols.length) return '';
+    const METRICS = ['nonnull', 'nulls', 'distinct', 'min', 'max', 'sum'];
+    const present = METRICS.filter(m => cols.some(c => (cmp[c].metrics || {})[m]));
+    const th = (t) => `<th style="text-align:left;padding:4px 8px;font-weight:600;border-bottom:1px solid var(--border);white-space:nowrap">${t}</th>`;
+    const cell = (col, m) => {
+      const e = (cmp[col].metrics || {})[m];
+      if (!e) return '<td style="padding:3px 8px;color:var(--text-muted)">·</td>';
+      const same = e.match;
+      const color = same ? 'var(--text-secondary)' : 'var(--danger,#dc2626)';
+      const arrow = same ? '=' : '→';
+      return `<td style="padding:3px 8px;font-family:monospace;font-size:11px;color:${color}">`
+        + `${fmt(e.source)} <span style="opacity:.6">${arrow}</span> ${fmt(e.candidate)}</td>`;
+    };
+    const row = (col) => {
+      const okc = cmp[col].match;
+      return `<tr>
+        <td style="padding:3px 8px;font-family:monospace;font-size:12px">${okc ? '✓' : '✗'} ${esc(col)}</td>
+        ${present.map(m => cell(col, m)).join('')}
+      </tr>`;
+    };
+    return `<div style="margin-top:8px;overflow:auto">
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">
+        Per-column fingerprint — <b>before</b> (Snowflake source) ${'→'} <b>after</b> (Databricks). Equal values (=) prove the column migrated faithfully.</div>
+      <table style="border-collapse:collapse;font-size:12px;min-width:100%">
+        <thead><tr>${th('Column')}${present.map(m => th(m)).join('')}</tr></thead>
+        <tbody>${cols.map(row).join('')}</tbody>
+      </table></div>`;
+  };
+
+  const schemaDrift = (r) => {
+    const s = (r.checks && r.checks.schema) || {};
+    const only = [...(s.only_in_source || []).map(c => `only in source: ${c}`),
+                  ...(s.only_in_candidate || []).map(c => `only in candidate: ${c}`)];
+    if (!only.length) return '';
+    return `<div style="font-size:11px;color:var(--warning,#b45309);margin-top:6px">schema drift — ${only.map(esc).join(', ')}</div>`;
+  };
+
   const card = (r) => {
     const ok = r.passed;
     const rc = (r.checks && r.checks.row_counts) || null;
-    const head = `${ok ? '✅' : '❌'} <span style="font-family:monospace">${esc(r.source)}</span> → <span style="font-family:monospace">${esc(r.candidate)}</span>`;
+    const rowsOk = rc ? rc.source === rc.candidate : true;
+    const head = `${ok ? '✅' : '❌'} <span style="font-family:monospace">${esc(r.source)}</span> <span style="opacity:.6">→</span> <span style="font-family:monospace">${esc(r.candidate)}</span>`;
     const detail = r.error
       ? `<div style="color:var(--danger,#dc2626);font-size:12px;padding:6px 0">${esc(r.error)}</div>`
       : `
-        ${rc ? `<div style="font-size:12px;color:var(--text-secondary)">rows: source ${rc.source} · candidate ${rc.candidate}${rc.delta ? ` (Δ ${rc.delta})` : ''}</div>` : ''}
-        ${(r.failures || []).length ? `<ul style="margin:6px 0 0;padding-left:18px;font-size:12px;color:var(--danger,#dc2626)">${r.failures.map(f => `<li>${esc(f)}</li>`).join('')}</ul>` : '<div style="font-size:12px;color:var(--success,#16a34a)">all checks passed</div>'}`;
-    return `<details style="border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--bg-primary)">
+        ${rc ? `<div style="font-size:12px;color:var(--text-secondary)">Row count — before <b>${rc.source}</b> ${'→'} after <b>${rc.candidate}</b> <span style="color:${rowsOk ? 'var(--success,#16a34a)' : 'var(--danger,#dc2626)'}">${rowsOk ? '✓ equal' : `✗ Δ ${rc.delta}`}</span></div>` : ''}
+        ${schemaDrift(r)}
+        ${comparisonTable(r)}
+        ${(r.failures || []).length ? `<ul style="margin:8px 0 0;padding-left:18px;font-size:12px;color:var(--danger,#dc2626)">${r.failures.map(f => `<li>${esc(f)}</li>`).join('')}</ul>` : '<div style="font-size:12px;color:var(--success,#16a34a);margin-top:8px">✓ all checks passed — the migrated table matches its Snowflake source</div>'}`;
+    return `<details style="border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--bg-primary)"${ok ? '' : ' open'}>
       <summary style="padding:8px 12px;cursor:pointer;font-size:13px">${head}</summary>
       <div style="padding:8px 12px;border-top:1px solid var(--border)">${detail}</div>
     </details>`;

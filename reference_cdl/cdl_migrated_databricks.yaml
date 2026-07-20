@@ -1,3 +1,10 @@
+# Provider-free target DAG: orchestrates the MIGRATED CDL pipeline on
+# Databricks + dbt via Airflow, using ONLY BashOperator + the stdlib
+# run_databricks_task.py helper. Imports on Airflow 2.10.5 with NO
+# apache-airflow-providers-databricks installed. Before running, export in
+# the Airflow env: DATABRICKS_HOST, DATABRICKS_TOKEN, and CDL_HELPER (the
+# absolute path to reference_cdl/run_databricks_task.py).
+# Regenerate with POST /api/sfglue/airflow/emit {"provider_free": true}.
 cdl_migrated_databricks:
   default_args:
     owner: cdl
@@ -9,55 +16,39 @@ cdl_migrated_databricks:
   description: "Migrated CDL pipeline on Databricks + dbt, orchestrated by Airflow"
   tasks:
     batch_open:
-      operator: airflow.providers.databricks.operators.databricks.DatabricksSubmitRunOperator
-      databricks_conn_id: "databricks_default"
-      notebook_task:
-        notebook_path: /Shared/sfglue/src/notebooks/fw_batch_open
+      operator: airflow.operators.bash.BashOperator
+      bash_command: "python3 \"$CDL_HELPER\" --host $DATABRICKS_HOST --token $DATABRICKS_TOKEN --notebook /Shared/sfglue/src/notebooks/fw_batch_open --catalog workspace"
     ingest_1:
-      operator: airflow.providers.databricks.operators.databricks.DatabricksSubmitRunOperator
-      databricks_conn_id: "databricks_default"
-      notebook_task:
-        notebook_path: /Shared/sfglue/src/notebooks/fw_file_audit
+      operator: airflow.operators.bash.BashOperator
+      bash_command: "python3 \"$CDL_HELPER\" --host $DATABRICKS_HOST --token $DATABRICKS_TOKEN --notebook /Shared/sfglue/src/notebooks/fw_file_audit --catalog workspace"
       dependencies: [batch_open]
     ingest_2:
-      operator: airflow.providers.databricks.operators.databricks.DatabricksSubmitRunOperator
-      databricks_conn_id: "databricks_default"
-      notebook_task:
-        notebook_path: /Shared/sfglue/src/notebooks/landing_to_raw
+      operator: airflow.operators.bash.BashOperator
+      bash_command: "python3 \"$CDL_HELPER\" --host $DATABRICKS_HOST --token $DATABRICKS_TOKEN --notebook /Shared/sfglue/src/notebooks/landing_to_raw --catalog workspace"
       dependencies: [ingest_1]
     ingest_3:
-      operator: airflow.providers.databricks.operators.databricks.DatabricksSubmitRunOperator
-      databricks_conn_id: "databricks_default"
-      notebook_task:
-        notebook_path: /Shared/sfglue/src/notebooks/load_confiq
+      operator: airflow.operators.bash.BashOperator
+      bash_command: "python3 \"$CDL_HELPER\" --host $DATABRICKS_HOST --token $DATABRICKS_TOKEN --notebook /Shared/sfglue/src/notebooks/load_confiq --catalog workspace"
       dependencies: [ingest_2]
     ingest_4:
-      operator: airflow.providers.databricks.operators.databricks.DatabricksSubmitRunOperator
-      databricks_conn_id: "databricks_default"
-      notebook_task:
-        notebook_path: /Shared/sfglue/src/notebooks/postgres_bronze_ingest
+      operator: airflow.operators.bash.BashOperator
+      bash_command: "python3 \"$CDL_HELPER\" --host $DATABRICKS_HOST --token $DATABRICKS_TOKEN --notebook /Shared/sfglue/src/notebooks/postgres_bronze_ingest --catalog workspace"
       dependencies: [ingest_3]
     ingest_5:
-      operator: airflow.providers.databricks.operators.databricks.DatabricksSubmitRunOperator
-      databricks_conn_id: "databricks_default"
-      notebook_task:
-        notebook_path: /Shared/sfglue/src/notebooks/raw_to_curated
+      operator: airflow.operators.bash.BashOperator
+      bash_command: "python3 \"$CDL_HELPER\" --host $DATABRICKS_HOST --token $DATABRICKS_TOKEN --notebook /Shared/sfglue/src/notebooks/raw_to_curated --catalog workspace"
       dependencies: [ingest_4]
     dbt_staging:
-      operator: airflow.providers.databricks.operators.databricks.DatabricksSubmitRunOperator
-      databricks_conn_id: "databricks_default"
-      json: {"run_name": "cdl_migrated_databricks.dbt_staging", "tasks": [{"task_key": "dbt_staging", "dbt_task": {"project_directory": "/Shared/sfglue/dbt", "commands": ["dbt deps", "dbt build --select staging"], "catalog": "workspace", "warehouse_id": "66b30eb900bcd97a", "source": "WORKSPACE"}, "environment_key": "dbt_env"}], "environments": [{"environment_key": "dbt_env", "spec": {"client": "1", "dependencies": ["dbt-databricks"]}}]}
+      operator: airflow.operators.bash.BashOperator
+      bash_command: "python3 \"$CDL_HELPER\" --host $DATABRICKS_HOST --token $DATABRICKS_TOKEN --dbt-project /Shared/sfglue/dbt --dbt-select staging --catalog workspace --warehouse 66b30eb900bcd97a"
       dependencies: [ingest_5]
     dbt_marts:
-      operator: airflow.providers.databricks.operators.databricks.DatabricksSubmitRunOperator
-      databricks_conn_id: "databricks_default"
-      json: {"run_name": "cdl_migrated_databricks.dbt_marts", "tasks": [{"task_key": "dbt_marts", "dbt_task": {"project_directory": "/Shared/sfglue/dbt", "commands": ["dbt deps", "dbt build --select marts"], "catalog": "workspace", "warehouse_id": "66b30eb900bcd97a", "source": "WORKSPACE"}, "environment_key": "dbt_env"}], "environments": [{"environment_key": "dbt_env", "spec": {"client": "1", "dependencies": ["dbt-databricks"]}}]}
+      operator: airflow.operators.bash.BashOperator
+      bash_command: "python3 \"$CDL_HELPER\" --host $DATABRICKS_HOST --token $DATABRICKS_TOKEN --dbt-project /Shared/sfglue/dbt --dbt-select marts --catalog workspace --warehouse 66b30eb900bcd97a"
       dependencies: [dbt_staging]
     batch_close:
-      operator: airflow.providers.databricks.operators.databricks.DatabricksSubmitRunOperator
-      databricks_conn_id: "databricks_default"
-      notebook_task:
-        notebook_path: /Shared/sfglue/src/notebooks/fw_batch_close
+      operator: airflow.operators.bash.BashOperator
+      bash_command: "python3 \"$CDL_HELPER\" --host $DATABRICKS_HOST --token $DATABRICKS_TOKEN --notebook /Shared/sfglue/src/notebooks/fw_batch_close --catalog workspace"
       dependencies: [dbt_marts]
     notify:
       operator: airflow.operators.bash.BashOperator

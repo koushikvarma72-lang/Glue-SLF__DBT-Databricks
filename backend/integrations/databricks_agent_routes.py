@@ -1,10 +1,11 @@
-"""Lean shim for the standalone sfglue app.
+"""Databricks introspection helper for the standalone sfglue app.
 
-The sfglue routes lazy-import exactly ONE symbol from the BI app's Databricks agent —
-``introspect_schema_tables`` (live column introspection for source-column grounding). We
-reproduce just that here so this app doesn't carry the full 1,400-line BI databricks agent.
-Same import path (``backend.integrations.databricks_agent_routes``) so the copied routes
-resolve it unchanged.
+This module registers NO routes despite its name — it is a helper module that exports a
+single symbol, ``introspect_schema_tables`` (live column introspection for source-column
+grounding), lazy-imported by ``backend.integrations.snowflake_glue_routes``. It is a lean
+shim reproducing just that one function so this app doesn't carry the full ~1,400-line BI
+databricks agent. The filename/import path (``backend.integrations.databricks_agent_routes``)
+is kept unchanged so the importing routes resolve it as-is; do not rename it.
 """
 from qvd_to_databricks.databricks_executor import execute_sql_statement
 

@@ -12,7 +12,7 @@ import { api } from '../api.js';
 import { store } from '../store.js';
 import { esc, artifactGroup, wireArtifacts, field as df } from '../components/ui.js';
 import { notify } from '../components/notify.js';
-import { confirmModal } from '../components/modal.js';
+import { confirmModal, promptModal } from '../components/modal.js';
 
 function renderPrecheck(pre) {
   if (!pre) return '';
@@ -203,6 +203,32 @@ export function renderSfGlueDatabricksAgentPage(container) {
           </div>
         `}
 
+        ${conv ? `
+        <!-- Orchestration: everything Databricks (Jobs + workspace) + the Airflow DAG that
+             drives them. Kept here on the Databricks page rather than a separate step. -->
+        <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-top:22px;background:var(--bg-surface)">
+          <strong style="font-size:13px">🎼 Orchestration — Databricks Jobs &amp; Airflow DAG</strong>
+          <p style="font-size:12px;color:var(--text-secondary);margin:6px 0 10px">
+            Push the converted notebooks + dbt project into the workspace, deploy the Glue Workflows
+            as Databricks Jobs (idempotent — matched by tag), and download an Airflow DAG that
+            orchestrates the migrated pipeline. Uses the destination configured above.
+          </p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            <button class="btn btn-secondary" id="orch-push" style="padding:6px 12px;font-size:12px"><span aria-hidden="true">⬆️</span> Push to workspace</button>
+            <button class="btn btn-secondary" id="orch-deploy" style="padding:6px 12px;font-size:12px"><span aria-hidden="true">🛠</span> Deploy Databricks Jobs</button>
+            <span style="width:1px;height:22px;background:var(--border)"></span>
+            <select id="orch-dbt-src" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--bg-surface);color:var(--text-primary)">
+              <option value="workspace">dbt: workspace</option>
+              <option value="git">dbt: git source</option>
+              <option value="dbt_cloud">dbt: dbt Cloud</option>
+            </select>
+            <label style="font-size:12px;display:inline-flex;align-items:center;gap:5px" title="Emit a BashOperator DAG that runs on an Airflow WITHOUT the databricks provider (the reference 2.10.5 setup)"><input type="checkbox" id="orch-provider-free" checked> provider-free</label>
+            <button class="btn btn-secondary" id="orch-dag-dl" style="padding:6px 12px;font-size:12px"><span aria-hidden="true">🌬️</span> Download Airflow DAG</button>
+          </div>
+          <div id="orch-status" role="status" aria-live="polite" style="font-size:12px;color:var(--text-muted);margin-top:8px"></div>
+          <div id="orch-run"></div>
+        </div>` : ''}
+
         <div style="margin-top:22px"><button class="btn btn-primary" id="dbx-to-dbt">DBT Agent →</button></div>
       </div>
     </div>`;
@@ -338,6 +364,96 @@ export function renderSfGlueDatabricksAgentPage(container) {
       store.set({ sfGlueSeedBronze: { error: e.message }, isSeedingSfGlue: false });
       notify(e.message, { kind: 'error', title: 'Seed bronze failed' });
     }
+  });
+
+  // ── Orchestration (Databricks Jobs + Airflow DAG) — inline status, no store keys
+  //    so a long deploy/run doesn't churn the whole page. ──
+  const setOrch = (html) => { const el = container.querySelector('#orch-status'); if (el) el.innerHTML = html; };
+
+  container.querySelector('#orch-push')?.addEventListener('click', async () => {
+    const destination = readDest();
+    const conv2 = store.get().sfGlueConversion;
+    if (!destination.workspace_url || !destination.token) { setOrch('⚠ Set the Workspace URL and token above first.'); return; }
+    if (!conv2) { setOrch('⚠ Generate the conversion first.'); return; }
+    setOrch('Pushing notebooks + dbt project to the workspace…');
+    try {
+      const r = await api.pushSfGlueWorkspace({ destination, artifacts: conv2 });
+      const okN = (r.results || []).filter(x => x.status === 'ok').length;
+      setOrch(r.success ? `✅ Pushed ${okN} file(s) to ${esc(r.root || '/Shared/sfglue')}.`
+                        : `⚠ Push incomplete: ${esc(r.error || 'see results/logs')}`);
+      notify(r.success ? 'Workspace push complete.' : 'Workspace push incomplete.',
+        { kind: r.success ? 'success' : 'warning', title: 'Workspace push' });
+    } catch (e) { setOrch('✗ ' + esc(e.message)); notify(e.message, { kind: 'error', title: 'Workspace push failed' }); }
+  });
+
+  container.querySelector('#orch-deploy')?.addEventListener('click', async () => {
+    const destination = readDest();
+    const glue = store.get().sfGlueGlueConfig || {};
+    if (!destination.workspace_url || !destination.token) { setOrch('⚠ Set the Workspace URL and token above first.'); return; }
+    if (!glue.region) { setOrch('⚠ No AWS Glue connection — connect Glue on the Connect step so its Workflows can be read.'); return; }
+    setOrch('Planning Glue Workflows → Databricks Jobs…');
+    try {
+      const plan = await api.planSfGlueWorkflows({ glue, destination });
+      const jobs = (plan.jobs || []).map(j => j.job);
+      if (!jobs.length) { setOrch('No Glue Workflows found in this account/region to deploy.'); return; }
+      setOrch(`Deploying ${jobs.length} Databricks Job(s)…`);
+      const dep = await api.deploySfGlueWorkflows({ destination, jobs });
+      const results = dep.results || [];
+      const okN = results.filter(r => r.success).length;
+      setOrch(`${dep.success ? '✅' : '⚠'} Deployed ${okN}/${results.length} Databricks Job(s) (idempotent by tag).`);
+      const runWrap = container.querySelector('#orch-run');
+      if (runWrap) {
+        runWrap.innerHTML = results.filter(r => r.job_id).map(r =>
+          `<button class="btn btn-secondary orch-run-btn" data-jobid="${esc(String(r.job_id))}" data-name="${esc(r.name || '')}" style="margin:8px 8px 0 0;padding:5px 10px;font-size:12px" title="Trigger the Job and watch it to a verdict">▶ Run ${esc(r.name || String(r.job_id))}</button>`).join('');
+        runWrap.querySelectorAll('.orch-run-btn').forEach(b => b.addEventListener('click', async () => {
+          const jobId = b.dataset.jobid; const nm = b.dataset.name || jobId;
+          b.disabled = true; b.textContent = `▶ Running ${nm}… (watching)`;
+          try {
+            const v = await api.runSfGlueWorkflow({ destination: readDest(), jobId, timeoutSeconds: 900 });
+            const passed = !!(v.success || v.state === 'SUCCESS' || v.result_state === 'SUCCESS');
+            b.textContent = `${passed ? '✅' : '❌'} ${nm}`;
+            notify(passed ? 'Databricks Job succeeded.' : 'Databricks Job did not succeed — see the run.',
+              { kind: passed ? 'success' : 'warning', title: 'Job run' });
+          } catch (e) { b.disabled = false; b.textContent = `▶ Run ${nm}`; notify(e.message, { kind: 'error', title: 'Run failed' }); }
+        }));
+      }
+      notify(dep.success ? 'Databricks Jobs deployed.' : 'Some jobs failed to deploy — see status.',
+        { kind: dep.success ? 'success' : 'warning', title: 'Deploy Jobs' });
+    } catch (e) {
+      setOrch(e.status === 404 ? 'No Glue Workflows found in this account/region.' : '✗ ' + esc(e.message));
+      notify(e.message, { kind: 'error', title: 'Deploy Jobs failed' });
+    }
+  });
+
+  container.querySelector('#orch-dag-dl')?.addEventListener('click', async () => {
+    const destination = readDest();
+    const conv2 = store.get().sfGlueConversion;
+    if (!conv2) { setOrch('⚠ Generate the conversion first.'); return; }
+    const dbtSource = container.querySelector('#orch-dbt-src')?.value || 'workspace';
+    const providerFree = !!container.querySelector('#orch-provider-free')?.checked;
+    let gitUrl, dbtCloudJobId;
+    if (dbtSource === 'git') {
+      const r = await promptModal({ title: 'Airflow DAG — git source', message: 'Git repo URL for the dbt project:',
+        fields: [{ id: 'gitUrl', label: 'Git repo URL', type: 'text', placeholder: 'https://github.com/your-org/cdl-dbt.git' }], confirmLabel: 'Generate' });
+      if (!r) return; gitUrl = (r.gitUrl || '').trim() || undefined;
+    }
+    if (dbtSource === 'dbt_cloud') {
+      const r = await promptModal({ title: 'Airflow DAG — dbt Cloud', message: 'dbt Cloud job ID to trigger:',
+        fields: [{ id: 'jobId', label: 'dbt Cloud job ID', type: 'text', placeholder: 'e.g. 123456' }], confirmLabel: 'Generate' });
+      if (!r) return; dbtCloudJobId = (r.jobId || '').trim() || undefined;
+    }
+    setOrch('Generating Airflow DAG…');
+    try {
+      const out = await api.emitTargetAirflow({ artifacts: conv2, destination, dbtSource, gitUrl, dbtCloudJobId, providerFree });
+      const blob = new Blob([out.yaml], { type: 'text/yaml' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = (out.name || 'cdl_migrated_databricks') + '.yaml';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setOrch(`✅ ${esc(out.name)} — ${out.tasks.length} tasks, dbt layers: ${esc((out.layers || []).join(' → '))}`
+        + `${providerFree ? ' · provider-free (runs on Airflow without the databricks provider)' : ''}. Drop it in your Airflow dags folder.`);
+    } catch (e) { setOrch('✗ ' + esc(e.message)); notify(e.message, { kind: 'error', title: 'DAG emit failed' }); }
   });
 }
 

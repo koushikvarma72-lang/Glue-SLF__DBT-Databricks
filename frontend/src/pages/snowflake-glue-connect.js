@@ -9,6 +9,7 @@ import { api } from '../api.js';
 import { store } from '../store.js';
 import { field, selectField, esc } from '../components/ui.js';
 import { notify } from '../components/notify.js';
+import { promptModal } from '../components/modal.js';
 
 // Turn a raw STS/IAM ARN into a short, readable principal. An SSO login looks like
 // `arn:aws:sts::<acct>:assumed-role/<RoleName>/<session>` (session = the user's
@@ -447,8 +448,18 @@ export function renderSfGlueConnectPage(container) {
     const status = container.querySelector('#glue-sso-status');
     const say = (html) => { if (status) status.innerHTML = html; };
     const region = container.querySelector('#glue-region').value.trim() || 'us-east-1';
-    const startUrl = prompt('Your AWS Identity Center start URL:',
-                            localStorage.getItem('qvf_aws_sso_start_url') || 'https://your-org.awsapps.com/start');
+    const startRes = await promptModal({
+      title: 'Sign in with AWS SSO',
+      message: 'Your AWS Identity Center start URL:',
+      fields: [{
+        id: 'startUrl', label: 'Start URL', type: 'text',
+        placeholder: 'https://your-org.awsapps.com/start',
+        value: localStorage.getItem('qvf_aws_sso_start_url') || 'https://your-org.awsapps.com/start',
+      }],
+      confirmLabel: 'Continue',
+    });
+    if (!startRes) return;
+    const startUrl = (startRes.startUrl || '').trim();
     if (!startUrl) return;
     localStorage.setItem('qvf_aws_sso_start_url', startUrl);
     try {
@@ -473,15 +484,32 @@ export function renderSfGlueConnectPage(container) {
       // pick account (auto when there's exactly one) and role (auto when one)
       let acct = accounts[0];
       if (accounts.length > 1) {
-        const menu = accounts.map((a, i) => `${i + 1}) ${a.account_name || a.account_id} (${a.account_id})`).join('\n');
-        const n = parseInt(prompt(`Choose an AWS account:\n${menu}\n\nEnter number:`, '1') || '1', 10);
-        acct = accounts[Math.min(Math.max(n, 1), accounts.length) - 1];
+        const pick = await promptModal({
+          title: 'Choose an AWS account',
+          fields: [{
+            id: 'account', label: 'AWS account', type: 'select',
+            options: accounts.map((a, i) => ({
+              value: String(i),
+              label: `${a.account_name || a.account_id} (${a.account_id})`,
+            })),
+          }],
+          confirmLabel: 'Select',
+        });
+        if (!pick) { say('sign-in cancelled.'); return; }
+        acct = accounts[parseInt(pick.account, 10)] || accounts[0];
       }
       let role = (acct.roles || [])[0];
       if ((acct.roles || []).length > 1) {
-        const menu = acct.roles.map((r, i) => `${i + 1}) ${r}`).join('\n');
-        const n = parseInt(prompt(`Choose a role in ${acct.account_id}:\n${menu}\n\nEnter number:`, '1') || '1', 10);
-        role = acct.roles[Math.min(Math.max(n, 1), acct.roles.length) - 1];
+        const pick = await promptModal({
+          title: `Choose a role in ${acct.account_id}`,
+          fields: [{
+            id: 'role', label: 'IAM role', type: 'select',
+            options: acct.roles.map((r, i) => ({ value: String(i), label: r })),
+          }],
+          confirmLabel: 'Select',
+        });
+        if (!pick) { say('sign-in cancelled.'); return; }
+        role = acct.roles[parseInt(pick.role, 10)] || acct.roles[0];
       }
       if (!role) { say('⚠ no roles available in that account.'); return; }
 
