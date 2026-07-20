@@ -33,6 +33,8 @@ function friendlyIdentity(id) {
 
 // Which source panel is open (survives store re-renders, e.g. after a test).
 let activeConnectTab = 'snowflake';
+// Postgres is an optional external source, hidden until the operator opts in.
+let pgRevealed = false;
 
 function statusBadge(conn) {
   if (!conn) return '';
@@ -65,10 +67,10 @@ export function renderSfGlueConnectPage(container) {
   const pg = state.sfGluePostgresConfig || {};
   const pgConn = state.sfGluePostgresConnection;
   const pgOk = !!(pgConn && pgConn.success);
-  // Visibility gate: for now the Postgres connector is always shown. LATER this should be
-  // true only when an external DB is detected (e.g. a Glue job reads JDBC, or lineage flags
-  // an external DB source). Flip this to that condition when the trigger is finalised.
-  const showPostgresConnect = true;
+  // Keep Connect to the two primary sources by default; Postgres appears once the operator
+  // adds it, or automatically when one is already configured. (Per-pipeline evidence-gating
+  // isn't possible here — lineage doesn't exist until the next step.)
+  const showPostgresConnect = pgRevealed || !!(pg.host || pgOk);
   // A test was attempted on both sources but neither connected — name the cause so the
   // disabled Continue button doesn't read as "you haven't tried yet".
   const bothFailed = !canContinue && sfConn && glueConn;
@@ -174,7 +176,10 @@ export function renderSfGlueConnectPage(container) {
             </p>
 
             <!-- Source tiles — pick which connector to configure -->
-            <div style="display:flex;gap:14px;margin-bottom:20px;flex-wrap:wrap">${tileRow}</div>
+            <div style="display:flex;gap:14px;margin-bottom:20px;flex-wrap:wrap;align-items:center">
+              ${tileRow}
+              ${showPostgresConnect ? '' : '<button type="button" id="pg-reveal" class="btn btn-ghost" style="font-size:12px;color:var(--text-muted);align-self:stretch">+ PostgreSQL source</button>'}
+            </div>
 
             <!-- Snowflake panel -->
             <div class="card connect-panel" data-panel="snowflake" style="${activeConnectTab === 'snowflake' ? '' : 'display:none'}">
@@ -350,6 +355,12 @@ export function renderSfGlueConnectPage(container) {
     t.addEventListener('click', () => selectTab(t.dataset.tab)));
   container.querySelectorAll('[data-next-tab]').forEach((b) =>
     b.addEventListener('click', () => selectTab(b.dataset.nextTab)));
+  // Reveal the optional Postgres connector and open it (full re-render adds the tile+panel).
+  container.querySelector('#pg-reveal')?.addEventListener('click', () => {
+    pgRevealed = true;
+    activeConnectTab = 'postgres';
+    renderSfGlueConnectPage(container);
+  });
 
   // Load the schemas of a database so the Schema field can be a picker.
   const loadSchemas = async (database) => {
