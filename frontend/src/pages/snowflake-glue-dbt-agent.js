@@ -366,18 +366,18 @@ export function renderSfGlueDbtAgentPage(container) {
           <button class="btn btn-secondary" id="dbt-back" style="padding:4px 10px">← Databricks Agent</button>
           <h2 style="margin:0">DBT Agent</h2>
         </div>
-        <p style="color:var(--text-secondary);margin:0 0 14px;font-size:13px">
+        <p class="sfg-lead">
           Run the models, test them, and verify every table against the Snowflake source — the ship gate.
         </p>
 
         ${reviewQueuePanel(conv.untranslatable)}
 
         <!-- RUN: execute the converted models with real dbt-Core (no git / dbt Cloud) -->
-        <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px;background:var(--bg-surface)">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
-            <strong style="font-size:13px">Run with dbt-Core (local)</strong>
-            <span style="font-size:11px;color:var(--text-muted)">Real <code>dbt build</code> against your warehouse — no git, no dbt Cloud.</span>
-            <button class="btn btn-primary" id="sfg-dbt-run" style="margin-left:auto;padding:4px 12px;font-size:12px">Run with dbt</button>
+        <div class="sfg-panel">
+          <div class="sfg-panel-head">
+            <strong class="sfg-panel-title">Run with dbt-Core (local)</strong>
+            <span class="sfg-hint">Real <code>dbt build</code> against your warehouse — no git, no dbt Cloud.</span>
+            <button class="btn btn-primary sfg-spring" id="sfg-dbt-run" style="padding:4px 12px;font-size:12px">Run with dbt</button>
             <button class="btn btn-secondary" id="sfg-dbt-cancel" style="display:none;padding:4px 12px;font-size:12px">Stop</button>
           </div>
           <div id="sfg-dbt-status" style="font-size:12px;margin-bottom:6px"></div>
@@ -386,31 +386,31 @@ export function renderSfGlueDbtAgentPage(container) {
         </div>
 
         <!-- EXPORT: download the full runnable dbt project as a .zip -->
-        <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px;background:var(--bg-surface)">
-          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-            <strong style="font-size:13px">Export dbt project</strong>
-            <span style="font-size:11px;color:var(--text-muted)">The full runnable project — models, tests, config, notebooks.</span>
-            <button class="btn btn-secondary" id="sfg-dbt-export" style="margin-left:auto;padding:4px 12px;font-size:12px">Export (.zip)</button>
+        <div class="sfg-panel">
+          <div class="sfg-panel-head" style="margin-bottom:0">
+            <strong class="sfg-panel-title">Export dbt project</strong>
+            <span class="sfg-hint">The full runnable project — models, tests, config, notebooks.</span>
+            <button class="btn btn-secondary sfg-spring" id="sfg-dbt-export" style="padding:4px 12px;font-size:12px">Export (.zip)</button>
           </div>
         </div>
 
         <!-- STAGED GATE 1: run the generated dbt tests + enforced contracts on the warehouse -->
-        <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px;background:var(--bg-surface)">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
-            <strong style="font-size:13px">Run dbt tests &amp; contracts</strong>
-            <span style="font-size:11px;color:var(--text-muted)">Key/grain, FK and contract checks on the built tables.</span>
-            <button class="btn btn-primary" id="test-run" ${(busyTest || !built || !hasTests) ? 'disabled' : ''} title="${built ? (hasTests ? 'Run the generated tests on the built Databricks tables.' : 'No tests generated — declare keys in the lineage.') : 'Build the tables first.'}" style="margin-left:auto;padding:4px 12px;font-size:12px">${busyTest ? 'Running…' : 'Run tests'}</button>
+        <div class="sfg-panel">
+          <div class="sfg-panel-head">
+            <strong class="sfg-panel-title">Run dbt tests &amp; contracts</strong>
+            <span class="sfg-hint">Key/grain, FK and contract checks on the built tables.</span>
+            <button class="btn btn-primary sfg-spring" id="test-run" ${(busyTest || !built || !hasTests) ? 'disabled' : ''} title="${built ? (hasTests ? 'Run the generated tests on the built Databricks tables.' : 'No tests generated — declare keys in the lineage.') : 'Build the tables first.'}" style="padding:4px 12px;font-size:12px">${busyTest ? 'Running…' : 'Run tests'}</button>
           </div>
           <div id="test-error" style="color:var(--danger,#dc2626);font-size:12px;margin-bottom:6px">${esc(state.sfGlueTestError || '')}</div>
           <div id="test-body">${renderTestResults(state)}</div>
         </div>
 
         <!-- SHIP GATE: reconcile built Databricks tables against the legacy Snowflake source -->
-        <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px;background:var(--bg-surface)">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
-            <strong style="font-size:13px">Verify against source</strong>
-            <span style="font-size:11px;color:var(--text-muted)">Schema, row counts &amp; per-column fingerprints, Snowflake vs Databricks — every table, no setup.</span>
-            <button class="btn btn-primary" id="rec-run" ${(busyRec || !built) ? 'disabled' : ''} title="${esc(recTitle)}" style="margin-left:auto;padding:4px 12px;font-size:12px">${busyRec ? 'Verifying…' : 'Verify all'}</button>
+        <div class="sfg-panel">
+          <div class="sfg-panel-head">
+            <strong class="sfg-panel-title">Verify against source</strong>
+            <span class="sfg-hint">Schema, row counts &amp; per-column fingerprints, Snowflake vs Databricks — every table, no setup.</span>
+            <button class="btn btn-primary sfg-spring" id="rec-run" ${(busyRec || !built) ? 'disabled' : ''} title="${esc(recTitle)}" style="padding:4px 12px;font-size:12px">${busyRec ? 'Verifying…' : 'Verify all'}</button>
           </div>
           <div id="rec-error" style="color:var(--danger,#dc2626);font-size:12px;margin-bottom:6px">${esc(state.sfGlueReconcileError || '')}</div>
           <div id="rec-body">${renderReconcile(state)}</div>

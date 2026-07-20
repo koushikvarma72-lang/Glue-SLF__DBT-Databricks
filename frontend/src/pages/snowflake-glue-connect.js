@@ -170,7 +170,7 @@ export function renderSfGlueConnectPage(container) {
         <div class="upload-main-area" style="overflow:auto;padding:28px 32px">
           <div style="max-width:1000px;margin:0 auto">
             <h2 style="margin:0 0 4px;font-size:20px">Connect your sources</h2>
-            <p style="color:var(--text-secondary);margin:0 0 22px;font-size:13px">
+            <p class="sfg-lead" style="margin-bottom:22px">
               Connect at least one source — its tables, views and ETL scripts feed the lineage step.
             </p>
 

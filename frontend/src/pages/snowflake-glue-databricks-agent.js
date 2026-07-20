@@ -137,15 +137,15 @@ export function renderSfGlueDatabricksAgentPage(container) {
           <button class="btn btn-secondary" id="dbx-back" style="padding:4px 10px">← Review & Edit</button>
           <h2 style="margin:0">Databricks Agent</h2>
         </div>
-        <p style="color:var(--text-secondary);margin:0 0 14px;font-size:13px">
+        <p class="sfg-lead">
           Set the destination, deploy the DDL, run the bronze load. The catalog/schema names here are what the generated code targets.
         </p>
 
         <!-- Databricks connection + destination (the single place for Databricks config) -->
-        <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;background:var(--bg-surface)">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-            <strong style="font-size:13px">Databricks destination${dest.catalog ? ` — ${esc(dest.catalog)}` : ''}</strong>
-            <button class="btn btn-secondary" id="dbx-precheck" ${busyPre ? 'disabled' : ''} style="margin-left:auto;padding:4px 10px;font-size:12px">${busyPre ? 'Checking…' : 'Check Databricks'}</button>
+        <div class="sfg-panel">
+          <div class="sfg-panel-head">
+            <strong class="sfg-panel-title">Databricks destination${dest.catalog ? ` — ${esc(dest.catalog)}` : ''}</strong>
+            <button class="btn btn-secondary sfg-spring" id="dbx-precheck" ${busyPre ? 'disabled' : ''} style="padding:4px 10px;font-size:12px">${busyPre ? 'Checking…' : 'Check Databricks'}</button>
           </div>
           <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
             ${df('dbx-dest-url', 'Workspace URL', dest.workspace_url, { placeholder: 'https://dbc-xxxx.cloud.databricks.com' })}
@@ -158,7 +158,7 @@ export function renderSfGlueDatabricksAgentPage(container) {
             ${df('dbx-dest-source-catalog', 'Source catalog', dest.source_catalog, { placeholder: 'raw_catalog' })}
             ${df('dbx-dest-source-schema', 'Source schema', dest.source_schema, { placeholder: 'raw' })}
           </div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:6px">
+          <div class="sfg-hint" style="margin-top:6px">
             Source catalog/schema = the raw landing location <code>source('bronze', …)</code> reads from; blank uses Catalog/Bronze above.
           </div>
           <div id="dbx-error" role="status" aria-live="polite" style="color:var(--danger,#dc2626);font-size:12px;margin-top:8px"></div>
@@ -166,9 +166,9 @@ export function renderSfGlueDatabricksAgentPage(container) {
         </div>
 
         ${conv && Object.keys(ddl).length ? `
-          <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+          <div class="sfg-actions">
             <button class="btn btn-primary" id="dbx-deploy" ${busyDeploy ? 'disabled' : ''} style="padding:6px 14px;font-size:13px;font-weight:700">${busyDeploy ? 'Deploying…' : `Deploy ${Object.keys(ddl).length} table(s) to Databricks`}</button>
-            <span style="font-size:12px;color:var(--text-muted)">Runs the CREATE TABLE statements in <code>${esc(dest.catalog || 'lakehouse')}</code>.</span>
+            <span class="sfg-hint">Runs the CREATE TABLE statements in <code>${esc(dest.catalog || 'lakehouse')}</code>.</span>
           </div>
           <div id="dbx-deploy-results" role="status" aria-live="polite" style="margin-bottom:14px">${state.sfGlueDeploy ? renderDeployResults(state.sfGlueDeploy) : ''}</div>
         ` : `
@@ -178,14 +178,14 @@ export function renderSfGlueDatabricksAgentPage(container) {
         `}
 
         ${conv && Object.keys(dbtModels).length ? `
-          <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+          <div class="sfg-actions">
             <button class="btn" id="dbx-seed-bronze" ${busySeed ? 'disabled' : ''} style="padding:6px 14px;font-size:13px;font-weight:700">${busySeed ? 'Seeding…' : 'Load sample bronze data'}</button>
-            <span style="font-size:12px;color:var(--text-muted)">Seeds sample rows into bronze so Build can run without the real S3 ingestion (demo/dev only).</span>
+            <span class="sfg-hint">Seeds sample rows into bronze so Build can run without the real S3 ingestion (demo/dev only).</span>
           </div>
           <div id="dbx-seed-results" role="status" aria-live="polite" style="margin-bottom:14px">${state.sfGlueSeedBronze ? renderSeedResults(state.sfGlueSeedBronze) : ''}</div>
-          <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+          <div class="sfg-actions">
             <button class="btn btn-primary" id="dbx-build" ${busyBuild ? 'disabled' : ''} style="padding:6px 14px;font-size:13px;font-weight:700">${busyBuild ? 'Building…' : `Build ${Object.keys(dbtModels).length} model(s)`}</button>
-            <span style="font-size:12px;color:var(--text-muted)">Runs the dbt models in dependency order and populates the migrated tables. Deploy the DDL first.</span>
+            <span class="sfg-hint">Runs the dbt models in dependency order and populates the migrated tables. Deploy the DDL first.</span>
           </div>
           <div id="dbx-build-results" role="status" aria-live="polite" style="margin-bottom:14px">${state.sfGlueBuild ? renderBuildResults(state.sfGlueBuild) : ''}</div>
         ` : ''}
@@ -204,9 +204,9 @@ export function renderSfGlueDatabricksAgentPage(container) {
         ${conv ? `
         <!-- Orchestration: everything Databricks (Jobs + workspace) + the Airflow DAG that
              drives them. Kept here on the Databricks page rather than a separate step. -->
-        <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-top:22px;background:var(--bg-surface)">
-          <strong style="font-size:13px">Orchestration — Databricks Jobs &amp; Airflow DAG</strong>
-          <p style="font-size:12px;color:var(--text-secondary);margin:6px 0 10px">
+        <div class="sfg-panel" style="margin-top:22px">
+          <strong class="sfg-panel-title">Orchestration — Databricks Jobs &amp; Airflow DAG</strong>
+          <p class="sfg-hint" style="margin:6px 0 10px">
             Push the artifacts to the workspace, deploy the Glue Workflows as Jobs, or download an Airflow DAG for the migrated pipeline.
           </p>
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">

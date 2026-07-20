@@ -527,6 +527,26 @@ body {
   padding: var(--space-lg);
 }
 
+/* ─── sfglue flow-page primitives ─────────────────────────────────────────────
+   One set of building blocks for the wizard pages so panels, intros, section
+   titles and helper text read as one system instead of drifting across
+   hand-styled screens. All values come from the design tokens; this consolidates
+   repeated inline styles — it is not a restyle. */
+.sfg-lead { color: var(--text-secondary); font-size: var(--text-base); line-height: 1.5; margin: 0 0 var(--space-lg); }
+.sfg-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  padding: var(--space-lg);
+  margin-bottom: var(--space-lg);
+}
+.sfg-panel-head { display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap; margin-bottom: var(--space-sm); }
+.sfg-panel-title { font-size: var(--text-sm); font-weight: 700; color: var(--text-primary); }
+.sfg-hint { font-size: var(--text-xs); color: var(--text-muted); line-height: 1.5; }
+.sfg-actions { display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap; margin-bottom: var(--space-sm); }
+/* Push a trailing element (usually the action button) to the right edge of a head/action row. */
+.sfg-spring { margin-left: auto; }
+
 /* ─── Badges ────────────────────────────────────────────────────────────── */
 .badge {
   display: inline-flex;

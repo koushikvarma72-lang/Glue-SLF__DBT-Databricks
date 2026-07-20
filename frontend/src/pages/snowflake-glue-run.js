@@ -97,7 +97,7 @@ export function renderSfGlueRunPage(container) {
           <button class="btn btn-secondary" id="run-back" style="padding:4px 10px">← Connect</button>
           <h2 style="margin:0">Automated migration</h2>
         </div>
-        <p style="color:var(--text-secondary);margin:0 0 18px;font-size:13px">
+        <p class="sfg-lead">
           Lineage → convert → one review checkpoint → build → verify. The numbered steps stay available for manual control.
         </p>
 

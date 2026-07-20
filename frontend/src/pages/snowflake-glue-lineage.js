@@ -127,7 +127,7 @@ export function renderSfGlueLineagePage(container) {
           <button class="btn btn-secondary" id="sfglue-back" style="padding:4px 10px">← Connections</button>
           <h2 style="margin:0">Lineage & duplication review</h2>
         </div>
-        <p style="color:var(--text-secondary);margin:0 0 16px;font-size:13px">
+        <p class="sfg-lead">
           The source → Snowflake dataflow, with tables that live in both systems flagged so each migrates once.
         </p>
 
