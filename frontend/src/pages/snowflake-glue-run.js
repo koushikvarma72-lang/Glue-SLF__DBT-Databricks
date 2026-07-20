@@ -368,13 +368,18 @@ async function continueRun(container) {
 
     setPhase('reconcile', 'running');
     const pairs = reconcilePairs(store.get());
-    if (pairs.length && pairs.some(p => p.key)) {
+    // No primary key required — verification runs schema + row-count + per-column
+    // fingerprints on every table (keys, when present, add the dup/null-key check).
+    if (pairs.length) {
       const { snowflake } = sourceConfigs(store.get());
       const rec = await api.reconcileSnowflakeGlueMigration({ snowflake, destination, pairs });
       store.get().sfGlueReconcile = rec;
-      setPhase('reconcile', 'done', `${pairs.filter(p => p.key).length} table(s) checked`);
+      const passed = (rec.results || []).filter(r => r.passed).length;
+      const total = (rec.results || []).length;
+      setPhase('reconcile', total && passed === total ? 'done' : 'error',
+               `${passed}/${total || pairs.length} table(s) match source`);
     } else {
-      setPhase('reconcile', 'skipped', 'no primary keys — reconcile in the dbt Agent (advanced)');
+      setPhase('reconcile', 'skipped', 'no tables to verify');
     }
 
 

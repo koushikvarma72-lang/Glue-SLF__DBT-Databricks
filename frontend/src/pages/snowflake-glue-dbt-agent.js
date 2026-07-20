@@ -341,10 +341,12 @@ export function renderSfGlueDbtAgentPage(container) {
       <div class="page" style="padding:24px;width:100%"><div style="max-width:1000px;margin:0 auto">
         <button class="btn btn-secondary" id="dbt-back" style="padding:4px 10px;font-size:11px;margin-bottom:12px">← Databricks Agent</button>
         <div style="color:var(--text-muted);font-size:14px;padding:40px;text-align:center;border:1px dashed var(--border);border-radius:10px">
-          Run <strong>Generate conversion</strong> on the <strong>Review &amp; Edit</strong> step first to produce the dbt models and <code>sources.yml</code>.
+          <div>Run <strong>Generate conversion</strong> on the <strong>Review &amp; Edit</strong> step first to produce the dbt models and <code>sources.yml</code>.</div>
+          <button class="btn btn-primary" id="dbt-goto-review" style="margin-top:12px">Go to Review &amp; Edit →</button>
         </div>
       </div></div>`;
     container.querySelector('#dbt-back')?.addEventListener('click', () => store.navigate('sfglue-databricks-agent'));
+    container.querySelector('#dbt-goto-review')?.addEventListener('click', () => store.navigate('sfglue-review'));
     return;
   }
 

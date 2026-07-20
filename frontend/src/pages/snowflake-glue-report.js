@@ -143,7 +143,6 @@ export function renderSfGlueReportPage(container) {
     container.innerHTML = `
       <div class="page" style="flex:1">
         <div class="empty-state">
-          <div class="empty-state-icon" aria-hidden="true"></div>
           <div class="empty-state-title">No migration yet</div>
           <div class="empty-state-text">Connect Snowflake/Glue, check lineage and generate a conversion — your migration report will appear here.</div>
           <button class="btn btn-primary btn-lg" id="sfreport-go-connect" style="margin-top:var(--space-lg)">Connect sources</button>

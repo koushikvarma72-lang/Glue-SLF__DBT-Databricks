@@ -134,8 +134,7 @@ export function renderSfGlueConnectPage(container) {
                border-radius:12px;border:1px solid ${sel ? 'var(--primary)' : 'var(--border)'};
                background:${sel ? 'var(--primary-soft)' : 'transparent'};cursor:pointer;transition:border-color .15s, background .15s">
         ${t.ok ? '<span aria-hidden="true" style="position:absolute;top:8px;right:10px;color:var(--success);font-size:13px">✓</span>' : ''}
-        <span aria-hidden="true" style="font-size:26px">${t.icon}</span>
-        <span style="font-size:13px;font-weight:600;color:var(--text-primary)">${t.name}
+        <span style="font-size:15px;font-weight:600;color:var(--text-primary)">${t.name}
           ${t.note ? `<span style="display:block;font-size:10px;font-weight:400;color:var(--text-muted)">${t.note}</span>` : ''}
         </span>
       </button>`;

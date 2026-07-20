@@ -383,8 +383,8 @@ export function renderSfGlueMapPage(container) {
           <div id="map-sections">${buildSections(state).join('')}</div>
         ` : `
           <div class="mm-empty">
-            No conversion yet — run the <strong>Automated migration</strong> (or Generate conversion in
-            Review &amp; Edit) and the full source→target map appears here.
+            <div>No conversion yet — generate one and the full source→target map appears here.</div>
+            <button class="btn btn-primary" id="map-goto-review" style="margin-top:12px">Go to Review &amp; Edit →</button>
           </div>
         `}
       </div>
@@ -402,6 +402,8 @@ export function renderSfGlueMapPage(container) {
       sec.style.display = anyVisible ? '' : 'none';
     });
   });
+
+  container.querySelector('#map-goto-review')?.addEventListener('click', () => store.navigate('sfglue-review'));
 }
 
 export function destroySfGlueMapPage() { /* stateless */ }

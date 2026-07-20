@@ -172,8 +172,9 @@ export function renderSfGlueDatabricksAgentPage(container) {
           </div>
           <div id="dbx-deploy-results" role="status" aria-live="polite" style="margin-bottom:14px">${state.sfGlueDeploy ? renderDeployResults(state.sfGlueDeploy) : ''}</div>
         ` : `
-          <div class="badge badge-info" style="display:block;text-align:left;white-space:normal;padding:10px;margin-bottom:14px;font-size:12px">
-            Run <strong>Generate conversion</strong> on Review &amp; Edit to produce the table DDL, then deploy it here.
+          <div class="badge badge-info" style="display:flex;align-items:center;gap:10px;text-align:left;white-space:normal;padding:10px;margin-bottom:14px;font-size:12px">
+            <span>Run <strong>Generate conversion</strong> on Review &amp; Edit to produce the table DDL, then deploy it here.</span>
+            <button class="btn btn-secondary dbx-goto-review" style="margin-left:auto;padding:3px 10px;font-size:12px;white-space:nowrap">Review &amp; Edit →</button>
           </div>
         `}
 
@@ -197,7 +198,8 @@ export function renderSfGlueDatabricksAgentPage(container) {
           ${artifactCount ? '' : '<div style="color:var(--text-muted);font-size:13px">No Databricks artifacts in this conversion (no ingestion jobs or Snowflake tables in scope).</div>'}
         ` : `
           <div style="color:var(--text-muted);font-size:14px;padding:24px;text-align:center;border:1px dashed var(--border);border-radius:10px">
-            Run <strong>Generate conversion</strong> on the Review &amp; Edit step to produce the bronze notebooks and table DDL.
+            <div>Run <strong>Generate conversion</strong> on the Review &amp; Edit step to produce the bronze notebooks and table DDL.</div>
+            <button class="btn btn-primary dbx-goto-review" style="margin-top:12px">Go to Review &amp; Edit →</button>
           </div>
         `}
 
@@ -231,6 +233,7 @@ export function renderSfGlueDatabricksAgentPage(container) {
 
   wireArtifacts(container);
   container.querySelector('#dbx-back')?.addEventListener('click', () => store.navigate('sfglue-review'));
+  container.querySelectorAll('.dbx-goto-review').forEach(b => b.addEventListener('click', () => store.navigate('sfglue-review')));
   container.querySelector('#dbx-to-dbt')?.addEventListener('click', () => store.navigate('sfglue-dbt-agent'));
 
   // Postgres → bronze ingestion is now generated automatically during conversion (when a
