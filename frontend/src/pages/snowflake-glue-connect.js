@@ -132,13 +132,11 @@ export function renderSfGlueConnectPage(container) {
     const sel = t.id === activeConnectTab;
     return `
       <button type="button" class="src-tile" data-tab="${t.id}" aria-pressed="${sel}"
-        style="position:relative;flex:1;min-width:150px;display:flex;flex-direction:column;align-items:center;gap:8px;padding:18px 12px;
-               border-radius:12px;border:1px solid ${sel ? 'var(--primary)' : 'var(--border)'};
+        style="position:relative;flex:1;min-width:150px;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px 14px;
+               border-radius:10px;border:1px solid ${sel ? 'var(--primary)' : 'var(--border)'};
                background:${sel ? 'var(--primary-soft)' : 'transparent'};cursor:pointer;transition:border-color .15s, background .15s">
-        ${t.ok ? '<span aria-hidden="true" style="position:absolute;top:8px;right:10px;color:var(--success);font-size:13px">✓</span>' : ''}
-        <span style="font-size:15px;font-weight:600;color:var(--text-primary)">${t.name}
-          ${t.note ? `<span style="display:block;font-size:10px;font-weight:400;color:var(--text-muted)">${t.note}</span>` : ''}
-        </span>
+        <span style="font-size:14px;font-weight:600;color:var(--text-primary)">${t.name}${t.note ? ` <span style="font-weight:400;color:var(--text-muted)">${t.note}</span>` : ''}</span>
+        ${t.ok ? '<span aria-hidden="true" style="color:var(--success);font-size:13px">✓</span>' : ''}
       </button>`;
   }).join('');
 
@@ -178,7 +176,7 @@ export function renderSfGlueConnectPage(container) {
             <!-- Source tiles — pick which connector to configure -->
             <div style="display:flex;gap:14px;margin-bottom:20px;flex-wrap:wrap;align-items:center">
               ${tileRow}
-              ${showPostgresConnect ? '' : '<button type="button" id="pg-reveal" class="btn btn-ghost" style="font-size:12px;color:var(--text-muted);align-self:stretch">+ PostgreSQL source</button>'}
+              ${showPostgresConnect ? '' : '<button type="button" id="pg-reveal" class="btn btn-ghost" style="font-size:12px;color:var(--text-muted)">+ PostgreSQL source</button>'}
             </div>
 
             <!-- Snowflake panel -->
