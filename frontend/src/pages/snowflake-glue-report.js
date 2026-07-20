@@ -12,6 +12,7 @@
 import { store } from '../store.js';
 import { api } from '../api.js';
 import { escapeHtml } from '../utils.js';
+import { reconcileResultsPanel } from '../components/ui.js';
 
 let sfGrading = false;      // an accuracy grade is in flight (prevents double-fire)
 let sfGradeFailed = false;  // grading failed for the current conversion (stops auto-retry)
@@ -77,13 +78,10 @@ function buildReport(state) {
   const rawGrade = state.sfGlueQualityGrade || null;
   const grade = (rawGrade && rawGrade._sig === convSig) ? rawGrade : null;
 
-  // Headline priority: an LLM is systematically overconfident about its own conversions,
-  // so its self-grade must NOT be the ship metric. The headline is the INDEPENDENT gate —
-  // execution reconciliation match (proven against the real source) > stage-completion
-  // readiness. The AI grade is surfaced separately, explicitly as a triage estimate.
-  const headline = reconScore != null
-    ? { score: reconScore, label: 'Verification match' }
-    : { score: readiness, label: 'Migration readiness' };
+  // The verification verdict is the report's headline (its own banner up top), so the
+  // gauge shows stage-completion readiness — a distinct, complementary number, not a
+  // duplicate of the match rate.
+  const headline = { score: readiness, label: 'Migration readiness' };
 
   // Independent ship gate: no unresolved review-queue blockers AND the generated dbt
   // tests/contracts pass on the warehouse AND every table verified against source. This —
@@ -207,6 +205,45 @@ export function renderSfGlueReportPage(container) {
           </div>
         </div>
 
+        <!-- HEADLINE: the verification verdict — the app's whole point, stated plainly. -->
+        <div class="report-card" style="border-left:4px solid ${r.reconTotal ? (r.shipGate.reconAllPassed ? 'var(--success)' : 'var(--error)') : 'var(--text-dim)'}">
+          <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+            <div style="flex:1;min-width:220px">
+              <div style="font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-muted);font-weight:700">Verified against source</div>
+              <div style="font-size:30px;font-weight:800;line-height:1.1;margin-top:4px;color:${r.reconTotal ? (r.shipGate.reconAllPassed ? 'var(--success)' : 'var(--error)') : 'var(--text-dim)'}">
+                ${r.reconTotal ? `${r.reconPassed} / ${r.reconTotal} tables match` : 'Not yet verified'}
+              </div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:4px">
+                ${r.reconTotal
+                  ? (r.shipGate.reconAllPassed
+                      ? 'Row counts, key integrity and per-column values all match the Snowflake source.'
+                      : `${r.reconTotal - r.reconPassed} of ${r.reconTotal} tables differ — see the proof below.`)
+                  : 'Build the tables, then run Verify against source on the DBT Agent step.'}
+              </div>
+            </div>
+            ${r.reconTotal ? '' : `<button class="btn btn-primary" id="sfreport-verify">Verify against source →</button>`}
+          </div>
+        </div>
+
+        <div class="report-card" style="border-left:4px solid ${r.shipGate.ready ? 'var(--success)' : 'var(--warning)'}">
+          <h3><span style="color:${r.shipGate.ready ? 'var(--success)' : 'var(--warning)'}">${r.shipGate.ready ? '✓' : '✗'}</span> Ship gate</h3>
+          <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:6px">
+            <div class="stage-row"><span class="stage-dot" style="background:${r.shipGate.blockersEmpty ? 'var(--success)' : 'var(--text-dim)'}">${r.shipGate.blockersEmpty ? '✓' : '·'}</span><span>No unresolved review-queue blockers</span></div>
+            <div class="stage-row"><span class="stage-dot" style="background:${r.shipGate.testsAllPassed ? 'var(--success)' : 'var(--text-dim)'}">${r.shipGate.testsAllPassed ? '✓' : '·'}</span><span>dbt tests + contracts pass${r.shipGate.testTotal ? ` (${r.shipGate.testPassed}/${r.shipGate.testTotal})` : ''}</span></div>
+            <div class="stage-row"><span class="stage-dot" style="background:${r.shipGate.reconAllPassed ? 'var(--success)' : 'var(--text-dim)'}">${r.shipGate.reconAllPassed ? '✓' : '·'}</span><span>Verified against source (reconciliation)</span></div>
+          </div>
+          <div class="ai-summary" style="margin-top:10px">${r.shipGate.ready
+            ? 'Ready to ship — every gate passed.'
+            : `Not ready: ${escapeHtml(r.shipGate.reason)}.`}</div>
+        </div>
+
+        ${r.reconTotal ? `
+        <!-- The proof: per-table, per-column source→candidate fingerprint (reused from the DBT Agent gate). -->
+        <div class="report-card">
+          <h3>Table-by-table proof <span style="font-weight:400;font-size:var(--text-sm);color:var(--text-muted)">— source → candidate, per column</span></h3>
+          ${reconcileResultsPanel(r.reconResults)}
+        </div>` : ''}
+
         <div class="report-card">
           <div class="report-hero">
             <div class="gauge" role="img" aria-label="${r.headline.label}: ${r.headline.score} percent">
@@ -234,18 +271,6 @@ export function renderSfGlueReportPage(container) {
                 <span class="stage-detail">${escapeHtml(s.detail)}</span>
               </div>`).join('')}
           </div>
-        </div>
-
-        <div class="report-card" style="border-left:4px solid ${r.shipGate.ready ? 'var(--success)' : 'var(--warning)'}">
-          <h3><span style="color:${r.shipGate.ready ? 'var(--success)' : 'var(--warning)'}">${r.shipGate.ready ? '✓' : '✗'}</span> Ship gate</h3>
-          <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:6px">
-            <div class="stage-row"><span class="stage-dot" style="background:${r.shipGate.blockersEmpty ? 'var(--success)' : 'var(--text-dim)'}">${r.shipGate.blockersEmpty ? '✓' : '·'}</span><span>No unresolved review-queue blockers</span></div>
-            <div class="stage-row"><span class="stage-dot" style="background:${r.shipGate.testsAllPassed ? 'var(--success)' : 'var(--text-dim)'}">${r.shipGate.testsAllPassed ? '✓' : '·'}</span><span>dbt tests + contracts pass${r.shipGate.testTotal ? ` (${r.shipGate.testPassed}/${r.shipGate.testTotal})` : ''}</span></div>
-            <div class="stage-row"><span class="stage-dot" style="background:${r.shipGate.reconAllPassed ? 'var(--success)' : 'var(--text-dim)'}">${r.shipGate.reconAllPassed ? '✓' : '·'}</span><span>Verified against source (reconciliation)</span></div>
-          </div>
-          <div class="ai-summary" style="margin-top:10px">${r.shipGate.ready
-            ? 'Ready to ship — every gate passed.'
-            : `Not ready: ${escapeHtml(r.shipGate.reason)}.`}</div>
         </div>
 
         <div class="report-card">
@@ -289,6 +314,7 @@ export function renderSfGlueReportPage(container) {
 
   // -- Handlers --
   document.getElementById('sfreport-download')?.addEventListener('click', () => downloadMarkdown(state, r));
+  document.getElementById('sfreport-verify')?.addEventListener('click', () => store.navigate('sfglue-dbt-agent'));
 
   // Accuracy grade: re-score on demand, auto-score once when missing/stale.
   document.getElementById('sfreport-regrade')?.addEventListener('click', () => {
@@ -373,6 +399,7 @@ function downloadMarkdown(state, r) {
     `**Target:** ${r.destLabel}  `,
     ``,
     `## Scorecard`,
+    `- **Verified against source:** ${r.reconTotal ? `${r.reconPassed}/${r.reconTotal} tables match` : 'not run'}`,
     `- **Ship gate (independent of AI grade):** ${r.shipGate.ready ? '✓ READY' : `✗ NOT READY — ${r.shipGate.reason}`}`,
     `- **${r.headline.label}:** ${r.headline.score}%`,
     `- **Tables:** ${r.tableCount}`,
