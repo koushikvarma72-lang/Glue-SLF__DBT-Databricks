@@ -84,11 +84,11 @@ export function codeArtifact(akey, name, code, kind, edits, explains) {
       <summary style="padding:8px 12px;cursor:pointer;font-size:13px;font-family:monospace">${esc(name)}${(edits && akey in edits) ? ' <span class="badge badge-info" style="font-size:10px">edited</span>' : ''}</summary>
       <div style="border-top:1px solid var(--border);padding:10px 12px">
         <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
-          <button class="btn btn-secondary sfg-explain" style="padding:3px 10px;font-size:11px"><span aria-hidden="true">💡</span> Explain</button>
-          <button class="btn btn-secondary sfg-reset" style="padding:3px 10px;font-size:11px" title="Revert edits"><span aria-hidden="true">↺</span> Reset</button>
+          <button class="btn btn-secondary sfg-explain" style="padding:3px 10px;font-size:11px">Explain</button>
+          <button class="btn btn-secondary sfg-reset" style="padding:3px 10px;font-size:11px" title="Revert edits">Reset</button>
           <div class="sfg-toggle" style="margin-left:auto;display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">
-            <button class="sfg-view" style="${tglOn}"><span aria-hidden="true">👁</span> View</button>
-            <button class="sfg-edit" style="${tglOff}"><span aria-hidden="true">✏️</span> Edit</button>
+            <button class="sfg-view" style="${tglOn}">View</button>
+            <button class="sfg-edit" style="${tglOff}">Edit</button>
           </div>
         </div>
         <textarea class="sfg-code" spellcheck="false" readonly data-original="${escAttr(code)}"
@@ -261,14 +261,14 @@ export function buildHandoffMarkdown(items, conv) {
  *
  * Each row is written for a NON-TECHNICAL operator: the plain-language sentence and a
  * suggested-action pill are prominent; the original technical ``detail`` is secondary
- * (small/dim). The header carries an "📤 Export for engineer" button — wire it with
+ * (small/dim). The header carries an "Export for engineer" button — wire it with
  * wireReviewQueue(container, conv).
  */
 export function reviewQueuePanel(items, { title = 'Needs human review before shipping' } = {}) {
   const list = items || [];
   if (!list.length) {
     return `<div style="box-sizing:border-box;width:100%;border:1px solid var(--border);border-left:3px solid var(--success,#16a34a);border-radius:10px;background:var(--bg-surface);padding:10px 12px;font-size:12px;color:var(--text-secondary);margin-bottom:12px">
-      <span style="color:var(--success,#16a34a);font-weight:600">✓</span> No untranslatable constructs were flagged. Every step was translated — still verify the built tables against the source before shipping.</div>`;
+      <span style="color:var(--success,#16a34a);font-weight:600">✓</span> Nothing flagged for review — verify against the source before shipping.</div>`;
   }
   const byTag = {};
   list.forEach(it => { (byTag[it.tag] = byTag[it.tag] || []).push(it); });
@@ -288,17 +288,17 @@ export function reviewQueuePanel(items, { title = 'Needs human review before shi
   }).join('');
   return `<details data-review-queue style="display:block;box-sizing:border-box;width:100%;max-width:100%;border:1px solid var(--border);border-left:3px solid var(--error,#dc2626);border-radius:10px;background:var(--bg-surface);font-size:12px;margin-bottom:12px;overflow:hidden">
     <summary style="box-sizing:border-box;padding:10px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <span style="font-weight:700;color:var(--text-primary);font-size:13px">⚠ ${esc(title)}</span>
+      <span style="font-weight:700;color:var(--text-primary);font-size:13px">${esc(title)}</span>
       <span style="color:var(--text-muted)">— ${list.length} item(s)</span>
       <span style="display:inline-flex;gap:4px;flex-wrap:wrap;min-width:0">${tagChips}</span>
-      <button type="button" class="btn btn-secondary review-queue-export" style="margin-left:auto;padding:3px 10px;font-size:11px;font-weight:600;flex-shrink:0" title="Download a Markdown handoff packet for an engineer">📤 Export for engineer</button>
+      <button type="button" class="btn btn-secondary review-queue-export" style="margin-left:auto;padding:3px 10px;font-size:11px;font-weight:600;flex-shrink:0" title="Download a Markdown handoff packet for an engineer">Export for engineer</button>
     </summary>
     <div style="background:var(--bg-primary)">${rows}</div>
   </details>`;
 }
 
 /**
- * Wire the review queue's "📤 Export for engineer" button inside ``container``: build a
+ * Wire the review queue's "Export for engineer" button inside ``container``: build a
  * Markdown handoff packet from the current queue + ``conv`` and download it client-side
  * (Blob + temporary <a download>). No backend call. ``items`` defaults to
  * ``conv.untranslatable`` (what reviewQueuePanel renders). Safe to call when no queue
@@ -368,7 +368,7 @@ export function reconcileResultsPanel(results) {
     const row = (col) => {
       const okc = cmp[col].match;
       return `<tr>
-        <td style="padding:3px 8px;font-family:monospace;font-size:12px">${okc ? '✓' : '✗'} ${esc(col)}</td>
+        <td style="padding:3px 8px;font-family:monospace;font-size:12px"><span style="color:${okc ? 'var(--success,#16a34a)' : 'var(--danger,#dc2626)'}">${okc ? '✓' : '✗'}</span> ${esc(col)}</td>
         ${present.map(m => cell(col, m)).join('')}
       </tr>`;
     };
@@ -393,7 +393,7 @@ export function reconcileResultsPanel(results) {
     const ok = r.passed;
     const rc = (r.checks && r.checks.row_counts) || null;
     const rowsOk = rc ? rc.source === rc.candidate : true;
-    const head = `${ok ? '✅' : '❌'} <span style="font-family:monospace">${esc(r.source)}</span> <span style="opacity:.6">→</span> <span style="font-family:monospace">${esc(r.candidate)}</span>`;
+    const head = `<span style="color:${ok ? 'var(--success,#16a34a)' : 'var(--danger,#dc2626)'};font-weight:700">${ok ? '✓' : '✗'}</span> <span style="font-family:monospace">${esc(r.source)}</span> <span style="opacity:.6">→</span> <span style="font-family:monospace">${esc(r.candidate)}</span>`;
     const detail = r.error
       ? `<div style="color:var(--danger,#dc2626);font-size:12px;padding:6px 0">${esc(r.error)}</div>`
       : `
@@ -472,7 +472,7 @@ export function wireArtifacts(container) {
     });
     box.querySelector('.sfg-explain')?.addEventListener('click', async (e) => {
       const btn = e.currentTarget;
-      btn.disabled = true; btn.innerHTML = '<span aria-hidden="true">💡</span> Explaining…';
+      btn.disabled = true; btn.innerHTML = 'Explaining…';
       if (editBtn) editBtn.disabled = true; // stale-snapshot guard while it runs
       explEl.style.display = 'block';
       explEl.textContent = 'Thinking…';
@@ -485,7 +485,7 @@ export function wireArtifacts(container) {
         notify("Couldn't generate an explanation. Check your AI provider settings and try again.",
           { kind: 'error', title: err && err.message ? err.message : 'Explain failed' });
       } finally {
-        btn.disabled = false; btn.innerHTML = '<span aria-hidden="true">💡</span> Explain';
+        btn.disabled = false; btn.innerHTML = 'Explain';
         if (editBtn) editBtn.disabled = false;
       }
     });

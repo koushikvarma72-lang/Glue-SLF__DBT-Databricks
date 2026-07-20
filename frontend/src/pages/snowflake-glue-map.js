@@ -49,7 +49,6 @@ function section(icon, title, subtitle, rows) {
   return `
     <div class="mm-section">
       <div class="mm-section-head">
-        <div class="mm-section-icon">${icon}</div>
         <div class="mm-section-titles">
           <div class="mm-section-title">${esc(title)}</div>
           <div class="mm-section-sub">${esc(subtitle)}</div>
@@ -128,7 +127,7 @@ function buildSections(state) {
         status: statusChip(true, 'retired'),
       }));
     });
-    out.push(section('⚙️', 'Glue jobs', `${ingestion.length} E+L · ${transforms.length} transform · ${publish.length} publish`, rows));
+    out.push(section('', 'Glue jobs', `${ingestion.length} E+L · ${transforms.length} transform · ${publish.length} publish`, rows));
   }
 
   // ── 2. Control framework (Postgres metadata) ──────────────────────────────
@@ -179,7 +178,7 @@ function buildSections(state) {
         }));
       }
     });
-    out.push(section('🗄️', 'Control framework (Postgres → Unity Catalog)',
+    out.push(section('', 'Control framework (Postgres → Unity Catalog)',
       `${(cp.tables || []).length} framework tables detected`, rows));
   }
 
@@ -226,13 +225,13 @@ function buildSections(state) {
       });
       ((j.dag || {}).warnings || []).forEach(w => {
         rows.push(row({
-          search: 'warning', source: muted('⚠ warning'),
+          search: 'warning', source: muted('warning'),
           target: `<span style="font-size:11px;color:var(--text-secondary)">${esc(w)}</span>`,
           mech: 'manual', how: '', status: '',
         }));
       });
     });
-    out.push(section('🔀', 'Orchestration (Workflows + Airflow → Databricks Jobs)',
+    out.push(section('', 'Orchestration (Workflows + Airflow → Databricks Jobs)',
       `${(wf.planned || []).length} pipeline(s) planned · ${deployed.filter(d => d.success).length} deployed`, rows));
   }
 
@@ -274,7 +273,7 @@ function buildSections(state) {
         status: statusChip(false, 'open'),
       }));
     }
-    out.push(section('🧱', 'Tables, contracts & project', 'DDL · dbt project scaffolding · review queue', rows));
+    out.push(section('', 'Tables, contracts & project', 'DDL · dbt project scaffolding · review queue', rows));
   }
 
   return out.filter(Boolean);
@@ -374,10 +373,7 @@ export function renderSfGlueMapPage(container) {
     <div class="page" style="overflow:auto;padding:24px;width:100%">
       <div class="mm-wrap">
         <h2 class="mm-title">Migration Map</h2>
-        <p class="mm-subtitle">
-          Every part of the source estate, what it became on Databricks, and how it got there —
-          <strong>AI conversion</strong> where language changes, <strong>deterministic engines</strong> everywhere else.
-        </p>
+        <p class="mm-subtitle">Every source element, what it became on Databricks, and how.</p>
         ${conv ? `
           <div class="mm-kpis">${buildKpis(state)}</div>
           <div class="mm-toolbar">

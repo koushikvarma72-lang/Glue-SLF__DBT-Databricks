@@ -53,7 +53,7 @@ function renderSourceErrors(errors) {
     .map(([k, v]) => `<li><strong>${esc(k)}</strong>: ${esc(human(v))}</li>`)
     .join('');
   return `<div class="badge badge-error" style="display:block;text-align:left;white-space:normal;padding:10px;margin-bottom:12px;font-size:12px">
-    <span aria-hidden="true">⚠</span> Some sources reported issues:<ul style="margin:6px 0 0 16px">${items}</ul></div>`;
+    Some sources reported issues:<ul style="margin:6px 0 0 16px">${items}</ul></div>`;
 }
 
 function renderDuplicates(duplicates) {
@@ -75,59 +75,40 @@ function renderDuplicates(duplicates) {
     </div>`).join('');
   return `
     <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
-      Same logical table found in two places — usually the Glue/S3 gold layer and the copy loaded into Snowflake.
-      “Column-name match” compares schema column names, not the underlying data.
+      Same logical table in two places — migrate it once. Column-name match compares schemas, not data.
     </div>
     <div style="max-height:420px;overflow:auto;padding-right:4px">${cards}</div>`;
 }
 
 function renderRecommendations(recs, aiUsed, aiStatus, aiError) {
-  if (!recs || !recs.length) {
-    return `<div style="color:var(--text-muted);font-size:13px">No recommendations.</div>`;
-  }
-  // Honest subtitle: distinguish "no provider" from "AI call failed" (e.g. expired
+  // Only the AI consolidation advice renders here. The deterministic per-table
+  // duplicate findings are exactly the "Tables in both systems" list next door —
+  // repeating them as 15-20 identical cards buried the recommendations that matter.
+  const aiRecs = (recs || []).filter(r => r.source === 'ai');
+
+  // Honest status line: distinguish "no provider" from "AI call failed" (e.g. expired
   // Bedrock SSO) from "AI ran but returned nothing" — instead of always blaming config.
   const status = aiStatus || (aiUsed ? 'ok' : 'no_provider');
-  const subtitle = status === 'ok' ? 'AI-assisted + structural analysis'
-    : status === 'error' ? `Structural analysis — AI call failed${aiError ? ': ' + esc(aiError) : ''}. If using Bedrock, your SSO may have expired (run \`aws sso login\`); then re-run Analyze lineage.`
-    : status === 'empty' ? 'Structural analysis — the AI returned no recommendations. Re-run Analyze lineage to retry.'
-    : 'Structural analysis — no AI provider configured. Connect one via ⚙ Settings, then re-run Analyze lineage.';
+  const subtitle = status === 'ok' ? ''
+    : status === 'error' ? `AI call failed${aiError ? ': ' + esc(aiError) : ''}. If using Bedrock, run \`aws sso login\` and re-analyze.`
+    : status === 'empty' ? 'The AI returned no recommendations — re-run Analyze lineage to retry.'
+    : 'No AI provider configured — connect one in Settings, then re-analyze.';
+
+  if (!aiRecs.length) {
+    return `<div style="color:var(--text-muted);font-size:13px">${subtitle || 'No recommendations.'}</div>`;
+  }
 
   const card = (r) => `
     <div style="border-left:3px solid ${SEVERITY_COLOR[r.severity] || '#999'};padding:8px 12px;margin-bottom:8px;background:var(--bg-primary);border-radius:0 6px 6px 0">
       <div style="display:flex;align-items:center;gap:8px">
         <strong style="font-size:13px">${esc(r.title)}</strong>
         <span style="font-size:10px;text-transform:uppercase;color:${SEVERITY_COLOR[r.severity] || '#999'}">${esc(r.severity || '')}</span>
-        ${r.source === 'ai' ? '<span class="badge badge-info" style="font-size:10px">AI</span>' : ''}
       </div>
       ${r.detail ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">${esc(r.detail)}</div>` : ''}
       ${(r.members && r.members.length) ? `<div style="font-size:11px;color:var(--text-muted);margin-top:4px">${r.members.map(esc).join(' · ')}</div>` : ''}
     </div>`;
 
-  // The deterministic baseline emits ONE "materialized in both Snowflake and Glue" rec
-  // per duplicate table — routinely 15-20+ near-identical HIGH cards that all say the same
-  // thing and mirror the "Tables in both systems" list. Collapse them into a single
-  // scrollable dropdown so the higher-value AI/other recs above aren't buried.
-  const isPerTableDup = (r) => r.source !== 'ai' && /materialized in both/i.test(r.title || '');
-  const bulk = recs.filter(isPerTableDup);
-  const rest = recs.filter((r) => !isPerTableDup(r));
-
-  const bulkHtml = bulk.length ? `
-    <details style="border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--bg-primary)">
-      <summary style="cursor:pointer;padding:9px 12px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;list-style:none">
-        <span style="color:var(--text-muted);font-size:11px">▸</span>
-        Consolidate ${bulk.length} table${bulk.length === 1 ? '' : 's'} materialized in both Snowflake &amp; Glue
-        <span style="font-size:10px;text-transform:uppercase;color:${SEVERITY_COLOR.high}">high</span>
-      </summary>
-      <div style="max-height:340px;overflow:auto;padding:2px 10px 8px">${bulk.map(card).join('')}</div>
-    </details>` : '';
-
-  return `
-    <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
-      ${subtitle}
-    </div>
-    ${rest.map(card).join('')}
-    ${bulkHtml}`;
+  return `<div style="max-height:420px;overflow:auto;padding-right:4px">${aiRecs.map(card).join('')}</div>`;
 }
 
 export function renderSfGlueLineagePage(container) {
@@ -146,10 +127,8 @@ export function renderSfGlueLineagePage(container) {
           <button class="btn btn-secondary" id="sfglue-back" style="padding:4px 10px">← Connections</button>
           <h2 style="margin:0">Lineage & duplication review</h2>
         </div>
-        <p style="color:var(--text-secondary);margin:0 0 16px">
-          Full dataflow from sources → Snowflake (and the ETL in Glue). Review it to spot tables and business logic
-          that live in more than one system — typically the same gold table built in Glue/S3 and copied into
-          Snowflake — so you can migrate each once instead of twice.
+        <p style="color:var(--text-secondary);margin:0 0 16px;font-size:13px">
+          The source → Snowflake dataflow, with tables that live in both systems flagged so each migrates once.
         </p>
 
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:${busy ? '8px' : '16px'}">
@@ -162,7 +141,7 @@ export function renderSfGlueLineagePage(container) {
           <div style="margin-bottom:16px">
             <div class="progress-indeterminate"></div>
             <div style="font-size:12px;color:var(--text-muted);margin-top:6px">
-              Reading Snowflake objects and the Glue catalog + ETL scripts… this can take a moment for large accounts.
+              Reading Snowflake objects and the Glue catalog + ETL scripts…
             </div>
           </div>
         ` : ''}
@@ -189,21 +168,17 @@ export function renderSfGlueLineagePage(container) {
               </div>
             </div>
 
-            <div style="margin-top:22px;display:flex;align-items:center;gap:12px">
+            <div style="margin-top:22px">
               <button class="btn btn-primary" id="sfglue-to-review">Review & Edit →</button>
-              <span style="font-size:12px;color:var(--text-muted)">Select tables, edit the Glue/Snowflake source and the generated dbt, then migrate — all on one screen.</span>
             </div>
           ` : `
             <div style="color:var(--text-muted);font-size:14px;padding:30px;text-align:center;border:1px dashed var(--border);border-radius:10px">
-              No tables or jobs were discovered. Common causes: no <strong>database</strong> selected, the
-              <strong>Schema</strong> doesn't exist in that database (clear Schema to scan all, or set a real one like
-              <code>TPCH_SF1000</code>), the role can't read <code>INFORMATION_SCHEMA</code>, or the AWS Glue connection
-              failed — see the issues above for the exact reason.
+              No tables or jobs discovered — check the database/schema selection and the source issues above.
             </div>
           `}
         ` : `
           <div style="color:var(--text-muted);font-size:14px;padding:40px;text-align:center;border:1px dashed var(--border);border-radius:10px">
-            Click <strong>Analyze lineage</strong> to read the Glue catalog + ETL scripts and Snowflake dependencies, then render the dataflow.
+            Click <strong>Analyze lineage</strong> to build the dataflow graph.
           </div>
         `}
       </div>
@@ -211,7 +186,7 @@ export function renderSfGlueLineagePage(container) {
       <div id="sfglue-job-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:1000;align-items:center;justify-content:center">
         <div role="dialog" aria-modal="true" aria-labelledby="sfglue-job-modal-title" style="background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;max-width:920px;width:92%;max-height:84vh;display:flex;flex-direction:column;padding:18px">
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
-            <h3 id="sfglue-job-modal-title" style="margin:0;font-family:monospace;font-size:15px"><span aria-hidden="true">⚙ </span><span id="sfglue-job-modal-name">Glue job</span></h3>
+            <h3 id="sfglue-job-modal-title" style="margin:0;font-family:monospace;font-size:15px"><span id="sfglue-job-modal-name">Glue job</span></h3>
             <button class="btn btn-secondary" id="sfglue-job-modal-close" style="margin-left:auto;padding:3px 10px">Close</button>
           </div>
           <div id="sfglue-job-modal-body" role="status" aria-live="polite" style="overflow:auto"></div>

@@ -38,12 +38,12 @@ let genTab = 'dbt';
 // the abort survives the store.set re-render that happens when conversion starts.
 let _convertAbort = null;
 const GEN_TABS = [
-  { id: 'dbt', label: '💎 dbt models' },
-  { id: 'ddl', label: '🗄️ Databricks DDL' },
-  { id: 'notebooks', label: '🔥 PySpark notebooks' },
-  { id: 'tests', label: '🧪 Tests & contracts' },
-  { id: 'sources', label: '📄 sources.yml' },
-  { id: 'notes', label: '📝 Notes' },
+  { id: 'dbt', label: 'dbt models' },
+  { id: 'ddl', label: 'Databricks DDL' },
+  { id: 'notebooks', label: 'PySpark notebooks' },
+  { id: 'tests', label: 'Tests & contracts' },
+  { id: 'sources', label: 'sources.yml' },
+  { id: 'notes', label: 'Notes' },
 ];
 
 function destroyGraph() {
@@ -52,7 +52,7 @@ function destroyGraph() {
 
 function renderGeneratedBody(state) {
   const conv = state.sfGlueConversion;
-  if (!conv) return emptyBox('Pick tables on the left, then click <strong>⚡ Generate conversion</strong> to produce dbt models, Databricks DDL and bronze notebooks here.');
+  if (!conv) return emptyBox('Pick tables on the left, then click <strong>Generate conversion</strong> to produce dbt models, Databricks DDL and bronze notebooks here.');
   const edits = state.sfGlueArtifactEdits || {};
   const explains = state.sfGlueArtifactExplain || {};
   // The hard-20% review queue heads the generated pane: nothing ships until it is empty
@@ -73,7 +73,7 @@ function renderGeneratedBody(state) {
     if (conv.packages_yml) parts.push(codeArtifact('packages_yml:packages.yml', 'packages.yml — dbt_utils (compound-grain tests)', conv.packages_yml, 'dbt packages', edits, explains));
     if (conv.governance_md) parts.push(codeArtifact('governance_md:GOVERNANCE.md', 'GOVERNANCE.md — lineage / secrets / dev-prod / cost checklist', conv.governance_md, 'governance', edits, explains));
     const gate = conv.gate ? `<div style="margin:0 0 8px;padding:8px 12px;border-radius:8px;font-size:12px;border:1px solid var(--border);background:var(--bg-surface)">
-        <strong>${conv.gate.blockers_empty ? '✅' : '⛔'} Ship gate:</strong> ${conv.gate.blocker_count} review-queue blocker(s)${conv.gate.contracts_enforced && conv.gate.contracts_enforced.length ? ` · ${conv.gate.contracts_enforced.length} enforced contract(s)` : ''}. <span style="color:var(--text-muted)">Gate = blockers clear AND reconciliation passes AND tests/contracts build. The AI grade is triage only.</span>
+        <strong>${conv.gate.blockers_empty ? '✓' : '✗'} Ship gate:</strong> ${conv.gate.blocker_count} review-queue blocker(s)${conv.gate.contracts_enforced && conv.gate.contracts_enforced.length ? ` · ${conv.gate.contracts_enforced.length} enforced contract(s)` : ''}. <span style="color:var(--text-muted)">Gate = blockers clear AND reconciliation passes AND tests/contracts build. The AI grade is triage only.</span>
       </div>` : '';
     return gate + (parts.length ? parts.join('') : emptyBox('No tests/contracts generated (declare keys in the lineage to get key/grain tests).'));
   }
@@ -163,12 +163,12 @@ export function renderSfGlueReviewPage(container) {
         <span id="rv-sel-count" style="font-size:12px;color:var(--text-muted)">${selectedCount} selected</span>
         <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <button class="btn btn-secondary" id="rv-load" ${busyReview ? 'disabled' : ''} style="padding:5px 11px;font-size:12px">${busyReview ? 'Loading…' : (review ? '↻ Refresh source' : 'Load source')}</button>
-          ${busyConvert ? `<button class="btn btn-secondary" id="rv-convert-stop" style="padding:5px 13px;font-size:12px;font-weight:700;color:var(--error);border-color:var(--error)">⏹ Stop</button>` : ''}
-          <button class="btn btn-primary" id="rv-convert" ${busyConvert || !selectedCount ? 'disabled' : ''} ${!selectedCount ? 'title="Select at least one table first"' : ''} style="padding:5px 13px;font-size:12px;font-weight:700">${busyConvert ? '⏳ Converting…' : '⚡ Generate conversion'}</button>
+          ${busyConvert ? `<button class="btn btn-secondary" id="rv-convert-stop" style="padding:5px 13px;font-size:12px;font-weight:700;color:var(--error);border-color:var(--error)">Stop</button>` : ''}
+          <button class="btn btn-primary" id="rv-convert" ${busyConvert || !selectedCount ? 'disabled' : ''} ${!selectedCount ? 'title="Select at least one table first"' : ''} style="padding:5px 13px;font-size:12px;font-weight:700">${busyConvert ? '⏳ Converting…' : 'Generate conversion'}</button>
         </div>
       </div>
 
-      ${review && review.errors && Object.keys(review.errors).length ? `<div class="badge badge-error" style="display:block;margin:8px 24px;padding:8px;font-size:12px;white-space:normal;text-align:left">⚠ ${Object.entries(review.errors).map(([k, v]) => `${esc(k)}: ${esc(typeof v === 'object' ? JSON.stringify(v) : v)}`).join(' · ')}</div>` : ''}
+      ${review && review.errors && Object.keys(review.errors).length ? `<div class="badge badge-error" style="display:block;margin:8px 24px;padding:8px;font-size:12px;white-space:normal;text-align:left">${Object.entries(review.errors).map(([k, v]) => `${esc(k)}: ${esc(typeof v === 'object' ? JSON.stringify(v) : v)}`).join(' · ')}</div>` : ''}
 
       <!-- Body: top (tables + graph) / bottom (source + generated). Panes are drag-resizable. -->
       <div id="rv-body" style="flex:1;display:flex;flex-direction:column;min-height:0">
@@ -176,7 +176,7 @@ export function renderSfGlueReviewPage(container) {
         <div id="rv-top" style="flex:0 0 38%;min-height:120px;display:flex;overflow:hidden">
           <div id="rv-tables-pane" style="flex:0 0 330px;min-width:200px;display:flex;flex-direction:column;border-right:1px solid var(--border);overflow:hidden">
             <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);background:var(--bg-surface)">
-              <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim)">📂 Project Tables</span>
+              <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim)">Project Tables</span>
               <input id="rv-search" placeholder="filter…" aria-label="Filter tables" autocomplete="off" style="margin-left:auto;width:110px;padding:3px 7px;border:1px solid var(--border);border-radius:5px;background:var(--bg-primary);color:var(--text-primary);font-size:11px" />
             </div>
             <label style="display:flex;align-items:center;gap:7px;padding:5px 10px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-secondary)">
@@ -186,7 +186,7 @@ export function renderSfGlueReviewPage(container) {
           </div>
           <div class="output-resizer rv-resizer" data-resize="col" data-target="rv-tables-pane" title="Drag to resize columns"></div>
           <div style="flex:1 1 0;min-width:200px;display:flex;flex-direction:column;overflow:hidden">
-            <div style="padding:7px 12px;border-bottom:1px solid var(--border);background:var(--bg-surface);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim)">🔗 Dependency Map</div>
+            <div style="padding:7px 12px;border-bottom:1px solid var(--border);background:var(--bg-surface);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim)">Dependency Map</div>
             <div id="rv-graph" style="flex:1;background:var(--bg-surface);overflow:hidden"></div>
           </div>
         </div>
@@ -213,7 +213,7 @@ export function renderSfGlueReviewPage(container) {
 
       <!-- Footer -->
       <div style="display:flex;align-items:center;gap:12px;padding:10px 24px;border-top:1px solid var(--border);flex-shrink:0">
-        <span style="font-size:12px;color:var(--text-muted)">Select tables, edit the source or generated code, then Generate conversion. Set the Databricks connection on the Databricks Agent step.</span>
+        <span style="font-size:12px;color:var(--text-muted)">Select tables, edit if needed, then Generate conversion.</span>
         <div style="flex:1"></div>
         <button class="btn btn-primary" id="rv-to-dbx" ${state.sfGlueConversion ? '' : 'disabled'} title="${state.sfGlueConversion ? '' : 'Generate a conversion first'}">Databricks Agent →</button>
       </div>

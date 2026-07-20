@@ -48,7 +48,7 @@ export function renderOpsHeader(el, graph, opts = {}) {
       </div>
       <div style="border:1px solid var(--border,#e2e8f0);border-radius:8px;padding:8px 12px;background:var(--bg-surface,#fff)">
         <span style="font-size:10px;font-weight:700;letter-spacing:.5px;color:#334155;text-transform:uppercase;margin-right:8px">Glue job execution chain (${chain.length})</span>
-        ${chain.map((j, i) => `${i ? '<span style="color:#94a3b8;margin:0 3px">→</span>' : ''}<button class="opsh-job" data-label="${esc(j.label)}" style="font-size:11px;font-weight:600;border:1px solid #0e7490;color:#0e7490;background:#fff;border-radius:6px;padding:3px 9px;cursor:pointer;margin-top:3px">${esc(j.label)}${(j.flags || []).length ? ` <span style="color:#dc2626">⚑${j.flags.length}</span>` : ''}</button>`).join('') || '<span style="font-size:11px;color:#94a3b8">no jobs</span>'}
+        ${chain.map((j, i) => `${i ? '<span style="color:#94a3b8;margin:0 3px">→</span>' : ''}<button class="opsh-job" data-label="${esc(j.label)}" style="font-size:11px;font-weight:600;border:1px solid #0e7490;color:#0e7490;background:#fff;border-radius:6px;padding:3px 9px;cursor:pointer;margin-top:3px">${esc(j.label)}${(j.flags || []).length ? ` <span style="color:#dc2626">${j.flags.length} flag${j.flags.length === 1 ? '' : 's'}</span>` : ''}</button>`).join('') || '<span style="font-size:11px;color:#94a3b8">no jobs</span>'}
       </div>
     </div>`;
   el.querySelectorAll('.opsh-job').forEach((b) => b.addEventListener('click', () =>

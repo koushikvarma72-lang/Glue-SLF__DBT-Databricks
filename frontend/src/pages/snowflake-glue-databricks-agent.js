@@ -20,7 +20,7 @@ function renderPrecheck(pre) {
   // Make the connection result unambiguous: an empty "already in Databricks" list
   // could mean "connected, nothing there" OR "couldn't connect" — say which.
   const status = pre.introspection_error
-    ? `<div style="font-size:12px;color:var(--danger,#dc2626);margin-bottom:6px">⚠ Couldn't read Unity Catalog — check Workspace URL / token / SQL Warehouse. <span style="color:var(--text-muted)">${esc(pre.introspection_error)}</span></div>`
+    ? `<div style="font-size:12px;color:var(--danger,#dc2626);margin-bottom:6px">Couldn't read Unity Catalog — check Workspace URL / token / SQL Warehouse. <span style="color:var(--text-muted)">${esc(pre.introspection_error)}</span></div>`
     : `<div style="font-size:12px;color:var(--success,#16a34a);margin-bottom:6px">✓ Connected to Databricks — read the destination catalog successfully.</div>`;
   return `<div style="margin-top:10px;padding:10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px">
     ${status}
@@ -38,14 +38,14 @@ function renderDeployResults(dep) {
   if (!dep) return '';
   if (!dep.results) {
     return `<details style="border:1px solid var(--border);border-radius:8px;background:var(--bg-primary)">
-      <summary style="padding:8px 12px;cursor:pointer;font-size:12px;color:var(--danger,#dc2626)">⚠ Deploy failed — details</summary>
+      <summary style="padding:8px 12px;cursor:pointer;font-size:12px;color:var(--danger,#dc2626)">Deploy failed — details</summary>
       <div style="padding:8px 12px;border-top:1px solid var(--border);font-size:12px;white-space:pre-wrap">${esc(dep.error || 'Deploy failed')}</div>
     </details>`;
   }
   const rows = dep.results.map(r =>
-    `<div style="font-size:12px;font-family:monospace">${r.success ? '✅' : '❌'} ${esc(r.target)} <span style="color:var(--text-muted)">${esc(r.message || '')}</span></div>`).join('');
+    `<div style="font-size:12px;font-family:monospace">${r.success ? '✓' : '✗'} ${esc(r.target)} <span style="color:var(--text-muted)">${esc(r.message || '')}</span></div>`).join('');
   return `<details ${dep.success ? '' : 'open'} style="border:1px solid var(--border);border-radius:8px;background:var(--bg-primary)">
-    <summary style="padding:8px 12px;cursor:pointer;font-size:12px;color:var(--text-secondary)">${dep.success ? '✅' : '⚠'} Deploy results — ${esc(dep.summary || `${dep.results.length} table(s)`)}</summary>
+    <summary style="padding:8px 12px;cursor:pointer;font-size:12px;color:var(--text-secondary)">${dep.success ? '✓' : '!'} Deploy results — ${esc(dep.summary || `${dep.results.length} table(s)`)}</summary>
     <div style="padding:8px 12px;border-top:1px solid var(--border)">${rows}</div>
   </details>`;
 }
@@ -54,14 +54,14 @@ function renderSeedResults(sd) {
   if (!sd) return '';
   if (!sd.results) {
     return `<details open style="border:1px solid var(--border);border-radius:8px;background:var(--bg-primary)">
-      <summary style="padding:8px 12px;cursor:pointer;font-size:12px;color:var(--danger,#dc2626)">⚠ Seed failed — details</summary>
+      <summary style="padding:8px 12px;cursor:pointer;font-size:12px;color:var(--danger,#dc2626)">Seed failed — details</summary>
       <div style="padding:8px 12px;border-top:1px solid var(--border);font-size:12px;white-space:pre-wrap">${esc(sd.error || 'Seed failed')}</div>
     </details>`;
   }
   const rows = sd.results.map(r =>
-    `<div style="font-size:12px;font-family:monospace">${r.status === 'ok' ? '✅' : '❌'} ${esc(r.name)}${r.message ? ' <span style="color:var(--text-muted)">: ' + esc(r.message) + '</span>' : ''}</div>`).join('');
+    `<div style="font-size:12px;font-family:monospace">${r.status === 'ok' ? '✓' : '✗'} ${esc(r.name)}${r.message ? ' <span style="color:var(--text-muted)">: ' + esc(r.message) + '</span>' : ''}</div>`).join('');
   return `<details ${sd.success ? '' : 'open'} style="border:1px solid var(--border);border-radius:8px;background:var(--bg-primary)">
-    <summary style="padding:8px 12px;cursor:pointer;font-size:12px;color:var(--text-secondary)">${sd.success ? '✅' : '⚠'} Bronze seed — ${esc(sd.summary || `${sd.results.length} statement(s)`)}</summary>
+    <summary style="padding:8px 12px;cursor:pointer;font-size:12px;color:var(--text-secondary)">${sd.success ? '✓' : '!'} Bronze seed — ${esc(sd.summary || `${sd.results.length} statement(s)`)}</summary>
     <div style="padding:8px 12px;border-top:1px solid var(--border)">${rows}</div>
   </details>`;
 }
@@ -70,21 +70,21 @@ function renderBuildResults(bld) {
   if (!bld) return '';
   if (!bld.results) {
     return `<details style="border:1px solid var(--border);border-radius:8px;background:var(--bg-primary)">
-      <summary style="padding:8px 12px;cursor:pointer;font-size:12px;color:var(--danger,#dc2626)">⚠ Build failed — details</summary>
+      <summary style="padding:8px 12px;cursor:pointer;font-size:12px;color:var(--danger,#dc2626)">Build failed — details</summary>
       <div style="padding:8px 12px;border-top:1px solid var(--border);font-size:12px;white-space:pre-wrap">${esc(bld.error || 'Build failed')}</div>
     </details>`;
   }
-  const icon = s => (s === 'created' ? '✅' : (s === 'repaired' ? '🔧' : (s === 'failed' ? '❌' : '⏭')));
+  const icon = s => (s === 'created' || s === 'repaired' ? '✓' : (s === 'failed' ? '✗' : '–'));
   // A model the AI auto-fixed against the real upstream columns then re-ran successfully.
   const repairBadge = r => {
     if (r.status !== 'repaired') return '';
     const n = Number(r.repair_attempts) || 1;
-    return ` <span class="badge badge-success" style="font-size:9px">🔧 auto-repaired (${n} attempt${n === 1 ? '' : 's'})</span>`;
+    return ` <span class="badge badge-success" style="font-size:9px">auto-repaired (${n} attempt${n === 1 ? '' : 's'})</span>`;
   };
   const rows = bld.results.map(r =>
     `<div style="font-size:12px;font-family:monospace">${icon(r.status)} ${esc(r.name)} <span style="color:var(--text-muted)">→ ${esc(r.status)}${r.message ? ': ' + esc(r.message) : ''}</span>${repairBadge(r)}</div>`).join('');
   return `<details ${bld.success ? '' : 'open'} style="border:1px solid var(--border);border-radius:8px;background:var(--bg-primary)">
-    <summary style="padding:8px 12px;cursor:pointer;font-size:12px;color:var(--text-secondary)">${bld.success ? '✅' : '⚠'} Build results — ${esc(bld.summary || `${bld.results.length} model(s)`)}</summary>
+    <summary style="padding:8px 12px;cursor:pointer;font-size:12px;color:var(--text-secondary)">${bld.success ? '✓' : '!'} Build results — ${esc(bld.summary || `${bld.results.length} model(s)`)}</summary>
     <div style="padding:8px 12px;border-top:1px solid var(--border)">${rows}</div>
   </details>`;
 }
@@ -137,17 +137,15 @@ export function renderSfGlueDatabricksAgentPage(container) {
           <button class="btn btn-secondary" id="dbx-back" style="padding:4px 10px">← Review & Edit</button>
           <h2 style="margin:0">Databricks Agent</h2>
         </div>
-        <p style="color:var(--text-secondary);margin:0 0 14px">
-          Connect your Databricks workspace and set the destination, then review the bronze notebooks and table
-          DDL. The <strong>Catalog</strong> and <strong>schema</strong> names below are what
-          <strong>Generate conversion</strong> (on Review &amp; Edit) writes into the generated code.
+        <p style="color:var(--text-secondary);margin:0 0 14px;font-size:13px">
+          Set the destination, deploy the DDL, run the bronze load. The catalog/schema names here are what the generated code targets.
         </p>
 
         <!-- Databricks connection + destination (the single place for Databricks config) -->
         <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;background:var(--bg-surface)">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-            <strong style="font-size:13px">⚙️ Databricks destination${dest.catalog ? ` — ${esc(dest.catalog)}` : ''}</strong>
-            <button class="btn btn-secondary" id="dbx-precheck" ${busyPre ? 'disabled' : ''} style="margin-left:auto;padding:4px 10px;font-size:12px">${busyPre ? 'Checking…' : '<span aria-hidden="true">🔎</span> Check Databricks'}</button>
+            <strong style="font-size:13px">Databricks destination${dest.catalog ? ` — ${esc(dest.catalog)}` : ''}</strong>
+            <button class="btn btn-secondary" id="dbx-precheck" ${busyPre ? 'disabled' : ''} style="margin-left:auto;padding:4px 10px;font-size:12px">${busyPre ? 'Checking…' : 'Check Databricks'}</button>
           </div>
           <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
             ${df('dbx-dest-url', 'Workspace URL', dest.workspace_url, { placeholder: 'https://dbc-xxxx.cloud.databricks.com' })}
@@ -161,7 +159,7 @@ export function renderSfGlueDatabricksAgentPage(container) {
             ${df('dbx-dest-source-schema', 'Source schema', dest.source_schema, { placeholder: 'raw' })}
           </div>
           <div style="font-size:11px;color:var(--text-muted);margin-top:6px">
-            <strong>Source catalog/schema</strong> is the raw landing location your <code>{{ source('bronze', …) }}</code> models read from. Used by <strong><span aria-hidden="true">🏗</span> Build models</strong>. Leave blank to use the Catalog / Bronze schema above.
+            Source catalog/schema = the raw landing location <code>source('bronze', …)</code> reads from; blank uses Catalog/Bronze above.
           </div>
           <div id="dbx-error" role="status" aria-live="polite" style="color:var(--danger,#dc2626);font-size:12px;margin-top:8px"></div>
           ${state.sfGluePrecheck ? renderPrecheck(state.sfGluePrecheck) : ''}
@@ -169,25 +167,25 @@ export function renderSfGlueDatabricksAgentPage(container) {
 
         ${conv && Object.keys(ddl).length ? `
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
-            <button class="btn btn-primary" id="dbx-deploy" ${busyDeploy ? 'disabled' : ''} style="padding:6px 14px;font-size:13px;font-weight:700">${busyDeploy ? '<span aria-hidden="true">🚀</span> Deploying…' : `<span aria-hidden="true">🚀</span> Deploy ${Object.keys(ddl).length} table(s) to Databricks`}</button>
-            <span style="font-size:12px;color:var(--text-muted)">Creates the table DDL in <code>${esc(dest.catalog || 'lakehouse')}</code> via your SQL Warehouse. Run <strong><span aria-hidden="true">🔎</span> Check Databricks</strong> first to skip ones already there. Bronze notebooks &amp; dbt models are copy/run for now.</span>
+            <button class="btn btn-primary" id="dbx-deploy" ${busyDeploy ? 'disabled' : ''} style="padding:6px 14px;font-size:13px;font-weight:700">${busyDeploy ? 'Deploying…' : `Deploy ${Object.keys(ddl).length} table(s) to Databricks`}</button>
+            <span style="font-size:12px;color:var(--text-muted)">Runs the CREATE TABLE statements in <code>${esc(dest.catalog || 'lakehouse')}</code>.</span>
           </div>
           <div id="dbx-deploy-results" role="status" aria-live="polite" style="margin-bottom:14px">${state.sfGlueDeploy ? renderDeployResults(state.sfGlueDeploy) : ''}</div>
         ` : `
           <div class="badge badge-info" style="display:block;text-align:left;white-space:normal;padding:10px;margin-bottom:14px;font-size:12px">
-            Run <strong><span aria-hidden="true">⚡</span> Generate conversion</strong> on Review &amp; Edit to produce the table DDL, then deploy it here.
+            Run <strong>Generate conversion</strong> on Review &amp; Edit to produce the table DDL, then deploy it here.
           </div>
         `}
 
         ${conv && Object.keys(dbtModels).length ? `
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
-            <button class="btn" id="dbx-seed-bronze" ${busySeed ? 'disabled' : ''} style="padding:6px 14px;font-size:13px;font-weight:700">${busySeed ? '<span aria-hidden="true">🌱</span> Seeding…' : '<span aria-hidden="true">🌱</span> Load sample bronze data'}</button>
-            <span style="font-size:12px;color:var(--text-muted)">Lands a small, referentially-consistent sample dataset into the bronze schema (columns derived from your models) so Build can run end-to-end without the real S3 ingestion. Demo/dev only — production uses the Bronze ingestion notebook.</span>
+            <button class="btn" id="dbx-seed-bronze" ${busySeed ? 'disabled' : ''} style="padding:6px 14px;font-size:13px;font-weight:700">${busySeed ? 'Seeding…' : 'Load sample bronze data'}</button>
+            <span style="font-size:12px;color:var(--text-muted)">Seeds sample rows into bronze so Build can run without the real S3 ingestion (demo/dev only).</span>
           </div>
           <div id="dbx-seed-results" role="status" aria-live="polite" style="margin-bottom:14px">${state.sfGlueSeedBronze ? renderSeedResults(state.sfGlueSeedBronze) : ''}</div>
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
-            <button class="btn btn-primary" id="dbx-build" ${busyBuild ? 'disabled' : ''} style="padding:6px 14px;font-size:13px;font-weight:700">${busyBuild ? '<span aria-hidden="true">🏗</span> Building…' : `<span aria-hidden="true">🏗</span> Build ${Object.keys(dbtModels).length} model(s)`}</button>
-            <span style="font-size:12px;color:var(--text-muted)">Populates the migrated tables — runs the dbt models in dependency order on your SQL Warehouse (resolving <code>{{ ref }}</code>/<code>{{ source }}</code> to real tables). Deploy the table DDL first so the targets exist.</span>
+            <button class="btn btn-primary" id="dbx-build" ${busyBuild ? 'disabled' : ''} style="padding:6px 14px;font-size:13px;font-weight:700">${busyBuild ? 'Building…' : `Build ${Object.keys(dbtModels).length} model(s)`}</button>
+            <span style="font-size:12px;color:var(--text-muted)">Runs the dbt models in dependency order and populates the migrated tables. Deploy the DDL first.</span>
           </div>
           <div id="dbx-build-results" role="status" aria-live="polite" style="margin-bottom:14px">${state.sfGlueBuild ? renderBuildResults(state.sfGlueBuild) : ''}</div>
         ` : ''}
@@ -199,7 +197,7 @@ export function renderSfGlueDatabricksAgentPage(container) {
           ${artifactCount ? '' : '<div style="color:var(--text-muted);font-size:13px">No Databricks artifacts in this conversion (no ingestion jobs or Snowflake tables in scope).</div>'}
         ` : `
           <div style="color:var(--text-muted);font-size:14px;padding:24px;text-align:center;border:1px dashed var(--border);border-radius:10px">
-            Run <strong>⚡ Generate conversion</strong> on the Review &amp; Edit step to produce the bronze notebooks and table DDL.
+            Run <strong>Generate conversion</strong> on the Review &amp; Edit step to produce the bronze notebooks and table DDL.
           </div>
         `}
 
@@ -207,15 +205,13 @@ export function renderSfGlueDatabricksAgentPage(container) {
         <!-- Orchestration: everything Databricks (Jobs + workspace) + the Airflow DAG that
              drives them. Kept here on the Databricks page rather than a separate step. -->
         <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-top:22px;background:var(--bg-surface)">
-          <strong style="font-size:13px">🎼 Orchestration — Databricks Jobs &amp; Airflow DAG</strong>
+          <strong style="font-size:13px">Orchestration — Databricks Jobs &amp; Airflow DAG</strong>
           <p style="font-size:12px;color:var(--text-secondary);margin:6px 0 10px">
-            Push the converted notebooks + dbt project into the workspace, deploy the Glue Workflows
-            as Databricks Jobs (idempotent — matched by tag), and download an Airflow DAG that
-            orchestrates the migrated pipeline. Uses the destination configured above.
+            Push the artifacts to the workspace, deploy the Glue Workflows as Jobs, or download an Airflow DAG for the migrated pipeline.
           </p>
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-            <button class="btn btn-secondary" id="orch-push" style="padding:6px 12px;font-size:12px"><span aria-hidden="true">⬆️</span> Push to workspace</button>
-            <button class="btn btn-secondary" id="orch-deploy" style="padding:6px 12px;font-size:12px"><span aria-hidden="true">🛠</span> Deploy Databricks Jobs</button>
+            <button class="btn btn-secondary" id="orch-push" style="padding:6px 12px;font-size:12px">Push to workspace</button>
+            <button class="btn btn-secondary" id="orch-deploy" style="padding:6px 12px;font-size:12px">Deploy Databricks Jobs</button>
             <span style="width:1px;height:22px;background:var(--border)"></span>
             <select id="orch-dbt-src" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--bg-surface);color:var(--text-primary)">
               <option value="workspace">dbt: workspace</option>
@@ -223,7 +219,7 @@ export function renderSfGlueDatabricksAgentPage(container) {
               <option value="dbt_cloud">dbt: dbt Cloud</option>
             </select>
             <label style="font-size:12px;display:inline-flex;align-items:center;gap:5px" title="Emit a BashOperator DAG that runs on an Airflow WITHOUT the databricks provider (the reference 2.10.5 setup)"><input type="checkbox" id="orch-provider-free" checked> provider-free</label>
-            <button class="btn btn-secondary" id="orch-dag-dl" style="padding:6px 12px;font-size:12px"><span aria-hidden="true">🌬️</span> Download Airflow DAG</button>
+            <button class="btn btn-secondary" id="orch-dag-dl" style="padding:6px 12px;font-size:12px">Download Airflow DAG</button>
           </div>
           <div id="orch-status" role="status" aria-live="polite" style="font-size:12px;color:var(--text-muted);margin-top:8px"></div>
           <div id="orch-run"></div>
@@ -274,7 +270,7 @@ export function renderSfGlueDatabricksAgentPage(container) {
       notifyPrecheck(result);
     } catch (e) {
       store.set({ isPrecheckingSfGlue: false });
-      const el = container.querySelector('#dbx-error'); if (el) el.textContent = '⚠ ' + e.message;
+      const el = container.querySelector('#dbx-error'); if (el) el.textContent = e.message;
       notify(e.message, { kind: 'error', title: 'Precheck failed' });
     }
   });
@@ -373,14 +369,14 @@ export function renderSfGlueDatabricksAgentPage(container) {
   container.querySelector('#orch-push')?.addEventListener('click', async () => {
     const destination = readDest();
     const conv2 = store.get().sfGlueConversion;
-    if (!destination.workspace_url || !destination.token) { setOrch('⚠ Set the Workspace URL and token above first.'); return; }
-    if (!conv2) { setOrch('⚠ Generate the conversion first.'); return; }
+    if (!destination.workspace_url || !destination.token) { setOrch('Set the Workspace URL and token above first.'); return; }
+    if (!conv2) { setOrch('Generate the conversion first.'); return; }
     setOrch('Pushing notebooks + dbt project to the workspace…');
     try {
       const r = await api.pushSfGlueWorkspace({ destination, artifacts: conv2 });
       const okN = (r.results || []).filter(x => x.status === 'ok').length;
-      setOrch(r.success ? `✅ Pushed ${okN} file(s) to ${esc(r.root || '/Shared/sfglue')}.`
-                        : `⚠ Push incomplete: ${esc(r.error || 'see results/logs')}`);
+      setOrch(r.success ? `✓ Pushed ${okN} file(s) to ${esc(r.root || '/Shared/sfglue')}.`
+                        : `Push incomplete: ${esc(r.error || 'see results/logs')}`);
       notify(r.success ? 'Workspace push complete.' : 'Workspace push incomplete.',
         { kind: r.success ? 'success' : 'warning', title: 'Workspace push' });
     } catch (e) { setOrch('✗ ' + esc(e.message)); notify(e.message, { kind: 'error', title: 'Workspace push failed' }); }
@@ -389,8 +385,8 @@ export function renderSfGlueDatabricksAgentPage(container) {
   container.querySelector('#orch-deploy')?.addEventListener('click', async () => {
     const destination = readDest();
     const glue = store.get().sfGlueGlueConfig || {};
-    if (!destination.workspace_url || !destination.token) { setOrch('⚠ Set the Workspace URL and token above first.'); return; }
-    if (!glue.region) { setOrch('⚠ No AWS Glue connection — connect Glue on the Connect step so its Workflows can be read.'); return; }
+    if (!destination.workspace_url || !destination.token) { setOrch('Set the Workspace URL and token above first.'); return; }
+    if (!glue.region) { setOrch('No AWS Glue connection — connect Glue on the Connect step so its Workflows can be read.'); return; }
     setOrch('Planning Glue Workflows → Databricks Jobs…');
     try {
       const plan = await api.planSfGlueWorkflows({ glue, destination });
@@ -400,21 +396,21 @@ export function renderSfGlueDatabricksAgentPage(container) {
       const dep = await api.deploySfGlueWorkflows({ destination, jobs });
       const results = dep.results || [];
       const okN = results.filter(r => r.success).length;
-      setOrch(`${dep.success ? '✅' : '⚠'} Deployed ${okN}/${results.length} Databricks Job(s) (idempotent by tag).`);
+      setOrch(`${dep.success ? '✓' : '!'} Deployed ${okN}/${results.length} Databricks Job(s) (idempotent by tag).`);
       const runWrap = container.querySelector('#orch-run');
       if (runWrap) {
         runWrap.innerHTML = results.filter(r => r.job_id).map(r =>
-          `<button class="btn btn-secondary orch-run-btn" data-jobid="${esc(String(r.job_id))}" data-name="${esc(r.name || '')}" style="margin:8px 8px 0 0;padding:5px 10px;font-size:12px" title="Trigger the Job and watch it to a verdict">▶ Run ${esc(r.name || String(r.job_id))}</button>`).join('');
+          `<button class="btn btn-secondary orch-run-btn" data-jobid="${esc(String(r.job_id))}" data-name="${esc(r.name || '')}" style="margin:8px 8px 0 0;padding:5px 10px;font-size:12px" title="Trigger the Job and watch it to a verdict">Run ${esc(r.name || String(r.job_id))}</button>`).join('');
         runWrap.querySelectorAll('.orch-run-btn').forEach(b => b.addEventListener('click', async () => {
           const jobId = b.dataset.jobid; const nm = b.dataset.name || jobId;
-          b.disabled = true; b.textContent = `▶ Running ${nm}… (watching)`;
+          b.disabled = true; b.textContent = `Running ${nm}… (watching)`;
           try {
             const v = await api.runSfGlueWorkflow({ destination: readDest(), jobId, timeoutSeconds: 900 });
             const passed = !!(v.success || v.state === 'SUCCESS' || v.result_state === 'SUCCESS');
-            b.textContent = `${passed ? '✅' : '❌'} ${nm}`;
+            b.textContent = `${passed ? '✓' : '✗'} ${nm}`;
             notify(passed ? 'Databricks Job succeeded.' : 'Databricks Job did not succeed — see the run.',
               { kind: passed ? 'success' : 'warning', title: 'Job run' });
-          } catch (e) { b.disabled = false; b.textContent = `▶ Run ${nm}`; notify(e.message, { kind: 'error', title: 'Run failed' }); }
+          } catch (e) { b.disabled = false; b.textContent = `Run ${nm}`; notify(e.message, { kind: 'error', title: 'Run failed' }); }
         }));
       }
       notify(dep.success ? 'Databricks Jobs deployed.' : 'Some jobs failed to deploy — see status.',
@@ -428,7 +424,7 @@ export function renderSfGlueDatabricksAgentPage(container) {
   container.querySelector('#orch-dag-dl')?.addEventListener('click', async () => {
     const destination = readDest();
     const conv2 = store.get().sfGlueConversion;
-    if (!conv2) { setOrch('⚠ Generate the conversion first.'); return; }
+    if (!conv2) { setOrch('Generate the conversion first.'); return; }
     const dbtSource = container.querySelector('#orch-dbt-src')?.value || 'workspace';
     const providerFree = !!container.querySelector('#orch-provider-free')?.checked;
     let gitUrl, dbtCloudJobId;
@@ -451,7 +447,7 @@ export function renderSfGlueDatabricksAgentPage(container) {
       a.download = (out.name || 'cdl_migrated_databricks') + '.yaml';
       a.click();
       URL.revokeObjectURL(a.href);
-      setOrch(`✅ ${esc(out.name)} — ${out.tasks.length} tasks, dbt layers: ${esc((out.layers || []).join(' → '))}`
+      setOrch(`✓ ${esc(out.name)} — ${out.tasks.length} tasks, dbt layers: ${esc((out.layers || []).join(' → '))}`
         + `${providerFree ? ' · provider-free (runs on Airflow without the databricks provider)' : ''}. Drop it in your Airflow dags folder.`);
     } catch (e) { setOrch('✗ ' + esc(e.message)); notify(e.message, { kind: 'error', title: 'DAG emit failed' }); }
   });

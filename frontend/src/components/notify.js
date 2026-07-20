@@ -17,10 +17,10 @@
 import { esc } from './ui.js';
 
 const KINDS = {
-  success: { icon: '✅', accent: 'var(--success,#16a34a)' },
-  error:   { icon: '❌', accent: 'var(--danger,#dc2626)' },
-  warning: { icon: '⚠️', accent: 'var(--warning,#d97706)' },
-  info:    { icon: 'ℹ️', accent: 'var(--accent,#2563eb)' },
+  success: { icon: '✓', accent: 'var(--success,#16a34a)' },
+  error:   { icon: '✗', accent: 'var(--danger,#dc2626)' },
+  warning: { icon: '!', accent: 'var(--warning,#d97706)' },
+  info:    { icon: '', accent: 'var(--accent,#2563eb)' },
 };
 
 const MAX_VISIBLE = 5;          // cap the stack; oldest is dropped past this
@@ -79,7 +79,7 @@ export function notify(message, { kind = 'info', title = '', timeout } = {}) {
   const body = document.createElement('div');
   body.style.cssText = 'flex:1 1 auto;min-width:0;overflow-wrap:anywhere';
   body.innerHTML =
-    `<span style="margin-right:6px" aria-hidden="true">${k.icon}</span>` +
+    (k.icon ? `<span style="margin-right:6px;color:${k.accent};font-weight:700" aria-hidden="true">${k.icon}</span>` : '') +
     (title ? `<strong>${esc(title)}</strong><br>` : '') +
     `<span>${esc(message)}</span>`;
 

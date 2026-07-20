@@ -86,7 +86,7 @@ async function exportSfgDbtProject(container) {
   } catch (err) {
     notify(String((err && err.message) || err), { kind: 'error', title: 'Export failed' });
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = prev || '⤓ Export dbt project (.zip)'; }
+    if (btn) { btn.disabled = false; btn.textContent = prev || 'Export dbt project (.zip)'; }
   }
 }
 
@@ -104,7 +104,7 @@ function renderSfgRunView() {
 
   if (btn) {
     btn.disabled = _sfgRun.running || !ready;
-    btn.textContent = _sfgRun.running ? 'Running…' : (_sfgRun.finished ? '▶ Re-run with dbt' : '▶ Run with dbt');
+    btn.textContent = _sfgRun.running ? 'Running…' : (_sfgRun.finished ? 'Re-run with dbt' : 'Run with dbt');
   }
   if (stop) {
     stop.style.display = _sfgRun.running ? '' : 'none';
@@ -113,11 +113,11 @@ function renderSfgRunView() {
   }
   if (statusEl) {
     let html = '';
-    if (_sfgRun.error) html = `<span style="color:var(--danger,#dc2626)">⚠ ${esc(_sfgRun.error)}</span>`;
+    if (_sfgRun.error) html = `<span style="color:var(--danger,#dc2626)">${esc(_sfgRun.error)}</span>`;
     else if (_sfgRun.running) html = `<span style="color:var(--text-secondary)">${_sfgRun.cancelling ? 'Stopping…' : 'Running dbt (debug → build)…'}</span>`;
-    else if (_sfgRun.status === 'success') html = `<span style="color:var(--success,#16a34a)">✅ ${esc(_sfgRun.summary || 'dbt build completed.')}</span>`;
+    else if (_sfgRun.status === 'success') html = `<span style="color:var(--success,#16a34a)">✓ ${esc(_sfgRun.summary || 'dbt build completed.')}</span>`;
     else if (_sfgRun.status === 'cancelled') html = `<span style="color:var(--text-muted)">Cancelled before finishing.</span>`;
-    else if (_sfgRun.status === 'error') html = `<span style="color:var(--danger,#dc2626)">❌ ${esc(_sfgRun.summary || 'dbt build failed — see the log.')}</span>`;
+    else if (_sfgRun.status === 'error') html = `<span style="color:var(--danger,#dc2626)">✗ ${esc(_sfgRun.summary || 'dbt build failed — see the log.')}</span>`;
     else if (!ready) html = `<span style="color:var(--text-muted)">Set the Databricks workspace, token &amp; SQL warehouse on the <strong>Databricks Agent</strong> step first.</span>`;
     statusEl.innerHTML = html;
   }
@@ -258,7 +258,7 @@ function renderTestResults(state) {
     <tr>
       <td style="padding:3px 8px;font-family:monospace;font-size:11px">${esc(r.model)}</td>
       <td style="padding:3px 8px;font-size:11px">${esc(KIND[r.kind] || r.kind)}${(r.columns || []).length ? ` <span style="color:var(--text-muted)">(${esc((r.columns || []).join(', '))})</span>` : ''}</td>
-      <td style="padding:3px 8px;font-size:12px">${r.passed ? '<span style="color:var(--success,#16a34a)">✅</span>' : `<span style="color:var(--danger,#dc2626)" title="${esc(r.detail || '')}">❌ ${esc(r.detail || 'fail')}</span>`}</td>
+      <td style="padding:3px 8px;font-size:12px">${r.passed ? '<span style="color:var(--success,#16a34a)">✓</span>' : `<span style="color:var(--danger,#dc2626)" title="${esc(r.detail || '')}">✗ ${esc(r.detail || 'fail')}</span>`}</td>
     </tr>`).join('');
   return `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">${summary}</div>` + (run ? `
     <table style="width:100%;border-collapse:collapse">
@@ -279,9 +279,9 @@ function renderReconcile(state) {
   const rows = pairs.map(p => {
     const r = resByCand[p.target];
     const status = !r ? '<span style="color:var(--text-muted)">—</span>'
-      : r.error ? `<span title="${esc(r.error)}" style="color:var(--danger,#dc2626)">⚠ error</span>`
-        : r.passed ? '<span style="color:var(--success,#16a34a)">✅ pass</span>'
-          : `<span style="color:var(--danger,#dc2626)">❌ ${(r.failures || []).length} issue(s)</span>`;
+      : r.error ? `<span title="${esc(r.error)}" style="color:var(--danger,#dc2626)">error</span>`
+        : r.passed ? '<span style="color:var(--success,#16a34a)">✓ pass</span>'
+          : `<span style="color:var(--danger,#dc2626)">✗ ${(r.failures || []).length} issue(s)</span>`;
     // Auto-excluded columns (surrogate/hash keys, run stamps) the operator can't be
     // expected to know about — shown as plain-language chips so they understand why a
     // column was skipped instead of silently dropping it.
@@ -341,7 +341,7 @@ export function renderSfGlueDbtAgentPage(container) {
       <div class="page" style="padding:24px;width:100%"><div style="max-width:1000px;margin:0 auto">
         <button class="btn btn-secondary" id="dbt-back" style="padding:4px 10px;font-size:11px;margin-bottom:12px">← Databricks Agent</button>
         <div style="color:var(--text-muted);font-size:14px;padding:40px;text-align:center;border:1px dashed var(--border);border-radius:10px">
-          Run <strong>⚡ Generate conversion</strong> on the <strong>Review &amp; Edit</strong> step first to produce the dbt models and <code>sources.yml</code>.
+          Run <strong>Generate conversion</strong> on the <strong>Review &amp; Edit</strong> step first to produce the dbt models and <code>sources.yml</code>.
         </div>
       </div></div>`;
     container.querySelector('#dbt-back')?.addEventListener('click', () => store.navigate('sfglue-databricks-agent'));
@@ -366,8 +366,8 @@ export function renderSfGlueDbtAgentPage(container) {
           <button class="btn btn-secondary" id="dbt-back" style="padding:4px 10px">← Databricks Agent</button>
           <h2 style="margin:0">DBT Agent</h2>
         </div>
-        <p style="color:var(--text-secondary);margin:0 0 14px">
-          dbt models (staging → silver → gold), <code>sources.yml</code>, and generated <code>schema.yml</code> tests. Review, resolve the queue below, then verify against the source.
+        <p style="color:var(--text-secondary);margin:0 0 14px;font-size:13px">
+          Run the models, test them, and verify every table against the Snowflake source — the ship gate.
         </p>
 
         ${reviewQueuePanel(conv.untranslatable)}
@@ -375,9 +375,9 @@ export function renderSfGlueDbtAgentPage(container) {
         <!-- RUN: execute the converted models with real dbt-Core (no git / dbt Cloud) -->
         <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px;background:var(--bg-surface)">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
-            <strong style="font-size:13px">▶ Run with dbt-Core (local)</strong>
-            <span style="font-size:11px;color:var(--text-muted)">Runs these models with real dbt (<code>dbt debug → dbt build</code>) on your Databricks warehouse — the Glue jobs, executed as dbt. No git, no dbt Cloud.</span>
-            <button class="btn btn-primary" id="sfg-dbt-run" style="margin-left:auto;padding:4px 12px;font-size:12px">▶ Run with dbt</button>
+            <strong style="font-size:13px">Run with dbt-Core (local)</strong>
+            <span style="font-size:11px;color:var(--text-muted)">Real <code>dbt build</code> against your warehouse — no git, no dbt Cloud.</span>
+            <button class="btn btn-primary" id="sfg-dbt-run" style="margin-left:auto;padding:4px 12px;font-size:12px">Run with dbt</button>
             <button class="btn btn-secondary" id="sfg-dbt-cancel" style="display:none;padding:4px 12px;font-size:12px">Stop</button>
           </div>
           <div id="sfg-dbt-status" style="font-size:12px;margin-bottom:6px"></div>
@@ -388,18 +388,18 @@ export function renderSfGlueDbtAgentPage(container) {
         <!-- EXPORT: download the full runnable dbt project as a .zip -->
         <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px;background:var(--bg-surface)">
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-            <strong style="font-size:13px">⤓ Export dbt project</strong>
-            <span style="font-size:11px;color:var(--text-muted)">Download the full runnable dbt project as a .zip — models + sources/schema/unit-tests/packages + dbt_project.yml + profiles.yml + bronze notebooks + reference DDL.</span>
-            <button class="btn btn-secondary" id="sfg-dbt-export" style="margin-left:auto;padding:4px 12px;font-size:12px" title="Download the full runnable dbt project as a .zip — models + sources/schema/unit-tests/packages + dbt_project.yml + profiles.yml + bronze notebooks + reference DDL.">⤓ Export dbt project (.zip)</button>
+            <strong style="font-size:13px">Export dbt project</strong>
+            <span style="font-size:11px;color:var(--text-muted)">The full runnable project — models, tests, config, notebooks.</span>
+            <button class="btn btn-secondary" id="sfg-dbt-export" style="margin-left:auto;padding:4px 12px;font-size:12px">Export (.zip)</button>
           </div>
         </div>
 
         <!-- STAGED GATE 1: run the generated dbt tests + enforced contracts on the warehouse -->
         <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px;background:var(--bg-surface)">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
-            <strong style="font-size:13px">🧪 Run dbt tests &amp; contracts</strong>
-            <span style="font-size:11px;color:var(--text-muted)">Executes the generated key/grain tests, FK relationships &amp; enforced-contract checks as SQL on the built tables — an execution gate BEFORE reconciliation.</span>
-            <button class="btn btn-primary" id="test-run" ${(busyTest || !built || !hasTests) ? 'disabled' : ''} title="${built ? (hasTests ? 'Run the generated tests on the built Databricks tables.' : 'No tests generated — declare keys in the lineage.') : 'Build the tables first.'}" style="margin-left:auto;padding:4px 12px;font-size:12px">${busyTest ? 'Running…' : '🧪 Run tests'}</button>
+            <strong style="font-size:13px">Run dbt tests &amp; contracts</strong>
+            <span style="font-size:11px;color:var(--text-muted)">Key/grain, FK and contract checks on the built tables.</span>
+            <button class="btn btn-primary" id="test-run" ${(busyTest || !built || !hasTests) ? 'disabled' : ''} title="${built ? (hasTests ? 'Run the generated tests on the built Databricks tables.' : 'No tests generated — declare keys in the lineage.') : 'Build the tables first.'}" style="margin-left:auto;padding:4px 12px;font-size:12px">${busyTest ? 'Running…' : 'Run tests'}</button>
           </div>
           <div id="test-error" style="color:var(--danger,#dc2626);font-size:12px;margin-bottom:6px">${esc(state.sfGlueTestError || '')}</div>
           <div id="test-body">${renderTestResults(state)}</div>
@@ -408,9 +408,9 @@ export function renderSfGlueDbtAgentPage(container) {
         <!-- SHIP GATE: reconcile built Databricks tables against the legacy Snowflake source -->
         <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px;background:var(--bg-surface)">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
-            <strong style="font-size:13px">✅ Verify against source</strong>
-            <span style="font-size:11px;color:var(--text-muted)">Runs on every table automatically — schema parity, row counts &amp; per-column aggregate fingerprints (Snowflake vs Databricks). No keys to fill in; add one only to also check duplicate/null keys. Build/deploy the tables first.</span>
-            <button class="btn btn-primary" id="rec-run" ${(busyRec || !built) ? 'disabled' : ''} title="${esc(recTitle)}" style="margin-left:auto;padding:4px 12px;font-size:12px">${busyRec ? 'Verifying…' : '🔬 Verify all'}</button>
+            <strong style="font-size:13px">Verify against source</strong>
+            <span style="font-size:11px;color:var(--text-muted)">Schema, row counts &amp; per-column fingerprints, Snowflake vs Databricks — every table, no setup.</span>
+            <button class="btn btn-primary" id="rec-run" ${(busyRec || !built) ? 'disabled' : ''} title="${esc(recTitle)}" style="margin-left:auto;padding:4px 12px;font-size:12px">${busyRec ? 'Verifying…' : 'Verify all'}</button>
           </div>
           <div id="rec-error" style="color:var(--danger,#dc2626);font-size:12px;margin-bottom:6px">${esc(state.sfGlueReconcileError || '')}</div>
           <div id="rec-body">${renderReconcile(state)}</div>
@@ -471,7 +471,7 @@ export function renderSfGlueDbtAgentPage(container) {
       store.set({ sfGlueReconcile: result, isReconcilingSfGlue: false });
       notifyReconcile(result);
     } catch (e) {
-      fail('⚠ ' + e.message);
+      fail(e.message);
       notify(e.message, { kind: 'error', title: 'Verification error' });
     }
   });
@@ -494,7 +494,7 @@ export function renderSfGlueDbtAgentPage(container) {
         title: result.all_passed ? 'All tests passed' : 'Some tests failed',
       });
     } catch (e) {
-      fail('⚠ ' + e.message);
+      fail(e.message);
       notify(e.message, { kind: 'error', title: 'Test run error' });
     }
   });

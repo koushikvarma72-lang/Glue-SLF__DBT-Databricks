@@ -37,7 +37,7 @@ let stage = 'idle';       // idle | running1 | checkpoint | running2 | done
 let abortCtl = null;
 const resetRun = () => { phaseState = {}; stage = 'idle'; abortCtl = null; };
 
-const ICON = { pending: '○', running: '⏳', done: '✓', error: '✗', skipped: '⤼' };
+const ICON = { pending: '○', running: '●', done: '✓', error: '✗', skipped: '–' };
 const COLOR = {
   pending: 'var(--text-dim)', running: 'var(--primary)', done: 'var(--success)',
   error: 'var(--error)', skipped: 'var(--text-muted)',
@@ -97,16 +97,15 @@ export function renderSfGlueRunPage(container) {
           <button class="btn btn-secondary" id="run-back" style="padding:4px 10px">← Connect</button>
           <h2 style="margin:0">Automated migration</h2>
         </div>
-        <p style="color:var(--text-secondary);margin:0 0 18px;font-size:13px;line-height:1.6">
-          Runs the whole pipeline for you: lineage → convert every table → <strong>one review checkpoint</strong> →
-          build into Databricks → reconcile. Use the numbered steps above any time for manual control.
+        <p style="color:var(--text-secondary);margin:0 0 18px;font-size:13px">
+          Lineage → convert → one review checkpoint → build → verify. The numbered steps stay available for manual control.
         </p>
 
         ${connected ? '' : `<div class="badge badge-error" style="display:block;padding:10px;margin-bottom:14px;font-size:12px">Connect Snowflake and/or AWS Glue on the Connect step first.</div>`}
 
         <!-- Databricks destination (needed to convert with real bronze columns + to build) -->
         <div class="card" style="margin-bottom:16px">
-          <div class="card-header"><div class="card-title"><span aria-hidden="true">🧱</span> Databricks destination</div></div>
+          <div class="card-header"><div class="card-title">Databricks destination</div></div>
           <div class="card-body">
             ${field('run-dbx-url', 'Workspace URL', dest.workspace_url, { placeholder: 'https://dbc-xxxx.cloud.databricks.com' })}
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -119,7 +118,7 @@ export function renderSfGlueRunPage(container) {
               ${field('run-dbx-source-catalog', 'Source catalog (opt)', dest.source_catalog, { placeholder: 'raw' })}
             </div>
             <div style="display:flex;align-items:center;gap:10px;margin-top:10px">
-              <button class="btn btn-secondary" id="run-dbx-test">🔌 Test Databricks connection</button>
+              <button class="btn btn-secondary" id="run-dbx-test">Test Databricks connection</button>
               <span id="run-dbx-test-result" style="font-size:12px;color:var(--text-muted)"></span>
             </div>
           </div>
@@ -128,13 +127,10 @@ export function renderSfGlueRunPage(container) {
         <!-- Airflow source orchestrator (optional): paste DAG source from the Airflow
              UI's Code tab — no server access needed. Converted alongside Glue workflows. -->
         <div class="card" style="margin-bottom:16px">
-          <div class="card-header"><div class="card-title"><span aria-hidden="true">🌬️</span> Airflow DAGs (optional source orchestrator)</div></div>
+          <div class="card-header"><div class="card-title">Airflow DAGs (optional source orchestrator)</div></div>
           <div class="card-body">
             <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">
-              If Airflow orchestrates the source pipeline, paste the DAG here — either the
-              <strong>Python source</strong> (Airflow UI → Code tab) or the <strong>dag-factory YAML</strong>
-              that generates it. Auto-detected. YAML configs are also carried into the workspace
-              at <code>/Shared/sfglue/conf/</code> so the config-driven pattern survives the move.
+              If Airflow orchestrates the source, paste the DAG (Python source or dag-factory YAML — auto-detected).
             </div>
             <textarea id="run-airflow-dag" spellcheck="false" placeholder="# Paste DAG .py source OR dag-factory .yaml here (leave empty to skip)"
               style="width:100%;min-height:110px;font-family:var(--font-mono,monospace);font-size:11px;background:var(--bg-inset,var(--bg-surface));color:var(--text-primary);border:1px solid var(--border);border-radius:8px;padding:10px;resize:vertical">${esc(localStorage.getItem('qvf_sfglue_airflow_dag') || '')}</textarea>
@@ -142,14 +138,13 @@ export function renderSfGlueRunPage(container) {
         </div>
 
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
-          <button class="btn btn-primary" id="run-start" style="font-weight:700">🚀 Run migration</button>
-          <button class="btn btn-secondary" id="run-stop" style="display:none">⏹ Stop</button>
+          <button class="btn btn-primary" id="run-start" style="font-weight:700">Run migration</button>
+          <button class="btn btn-secondary" id="run-stop" style="display:none">Stop</button>
           <span id="run-status" style="font-size:12px;color:var(--text-muted)"></span>
         </div>
         <label style="display:flex;align-items:center;gap:8px;margin-bottom:16px;font-size:12.5px;color:var(--text-secondary);cursor:pointer">
           <input type="checkbox" id="run-handsfree" ${localStorage.getItem('qvf_sfglue_handsfree') === '1' ? 'checked' : ''}/>
-          <span><strong>Hands-free mode</strong> — auto-approve the review checkpoint and run all ten phases
-          without stopping (the report is your review, after the fact)</span>
+          <span><strong>Hands-free</strong> — skip the checkpoint and run every phase without stopping</span>
         </label>
 
         <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg-surface)">
@@ -322,7 +317,7 @@ function renderCheckpoint(container, conv) {
   ];
   box.innerHTML = `
     <div class="card" style="border-color:var(--primary)">
-      <div class="card-header"><div class="card-title"><span aria-hidden="true">⏸</span> Review checkpoint</div></div>
+      <div class="card-header"><div class="card-title">Review checkpoint</div></div>
       <div class="card-body">
         <div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px">
           Conversion is done. Review the generated code, then continue — <strong>Build writes tables into your Databricks catalog</strong>.
@@ -332,7 +327,7 @@ function renderCheckpoint(container, conv) {
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
           <button class="btn btn-secondary" id="run-review-adv">Open in Review &amp; Edit (advanced)</button>
-          <button class="btn btn-primary" id="run-continue" style="font-weight:700">✅ Continue → Build &amp; Reconcile</button>
+          <button class="btn btn-primary" id="run-continue" style="font-weight:700">✓ Continue → Build &amp; Reconcile</button>
         </div>
       </div>
     </div>`;
@@ -486,7 +481,7 @@ function renderDone(container) {
   if (!box) return;
   box.innerHTML = `
     <div class="card" style="border-color:var(--success)">
-      <div class="card-header"><div class="card-title"><span aria-hidden="true">🎉</span> Migration run complete</div></div>
+      <div class="card-header"><div class="card-title">Migration run complete</div></div>
       <div class="card-body">
         <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
           Conversion built into Databricks. Open the report for the full summary, fidelity grade, and artifacts.
@@ -498,7 +493,7 @@ function renderDone(container) {
             <option value="git">dbt: git source</option>
             <option value="dbt_cloud">dbt: dbt Cloud</option>
           </select>
-          <button class="btn btn-secondary" id="run-airflow-dag-dl">🌬️ Download Airflow DAG (target)</button>
+          <button class="btn btn-secondary" id="run-airflow-dag-dl">Download Airflow DAG (target)</button>
           <button class="btn btn-secondary" id="run-again">Run again</button>
         </div>
         <div id="run-airflow-dag-note" style="font-size:11px;color:var(--text-muted);margin-top:8px"></div>
@@ -566,7 +561,7 @@ function onRunError(container, err) {
   const running = PHASES.find(p => (phaseState[p.key] || {}).status === 'running');
   if (running) setPhase(running.key, 'error', err && err.name === 'AbortError' ? 'stopped' : (err.message || 'failed'));
   const el = container.querySelector('#run-error');
-  if (el && !(err && err.name === 'AbortError')) el.textContent = '⚠ ' + (err.message || 'Run failed');
+  if (el && !(err && err.name === 'AbortError')) el.textContent = (err.message || 'Run failed');
   if (err && err.name === 'AbortError') notify('Run stopped.', { kind: 'warning', title: 'Stopped' });
   else notify(err.message || 'Run failed', { kind: 'error', title: 'Migration run failed' });
 }

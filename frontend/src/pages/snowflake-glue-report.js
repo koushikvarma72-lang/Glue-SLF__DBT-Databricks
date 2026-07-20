@@ -145,7 +145,7 @@ export function renderSfGlueReportPage(container) {
     container.innerHTML = `
       <div class="page" style="flex:1">
         <div class="empty-state">
-          <div class="empty-state-icon" aria-hidden="true">📋</div>
+          <div class="empty-state-icon" aria-hidden="true"></div>
           <div class="empty-state-title">No migration yet</div>
           <div class="empty-state-text">Connect Snowflake/Glue, check lineage and generate a conversion — your migration report will appear here.</div>
           <button class="btn btn-primary btn-lg" id="sfreport-go-connect" style="margin-top:var(--space-lg)">Connect sources</button>
@@ -203,7 +203,7 @@ export function renderSfGlueReportPage(container) {
             <div class="report-sub">Snowflake + AWS Glue → ${escapeHtml(r.destLabel)} · sources: ${escapeHtml(r.sourcesLabel)}</div>
           </div>
           <div style="display:flex;gap:8px">
-            <button class="btn btn-secondary" id="sfreport-download">⬇ Download report (.md)</button>
+            <button class="btn btn-secondary" id="sfreport-download">Download report (.md)</button>
           </div>
         </div>
 
@@ -237,22 +237,22 @@ export function renderSfGlueReportPage(container) {
         </div>
 
         <div class="report-card" style="border-left:4px solid ${r.shipGate.ready ? 'var(--success)' : 'var(--warning)'}">
-          <h3>${r.shipGate.ready ? '✅' : '⛔'} Ship gate <span style="font-weight:400;font-size:var(--text-sm);color:var(--text-muted)">— independent of the AI grade</span></h3>
+          <h3><span style="color:${r.shipGate.ready ? 'var(--success)' : 'var(--warning)'}">${r.shipGate.ready ? '✓' : '✗'}</span> Ship gate</h3>
           <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:6px">
             <div class="stage-row"><span class="stage-dot" style="background:${r.shipGate.blockersEmpty ? 'var(--success)' : 'var(--text-dim)'}">${r.shipGate.blockersEmpty ? '✓' : '·'}</span><span>No unresolved review-queue blockers</span></div>
             <div class="stage-row"><span class="stage-dot" style="background:${r.shipGate.testsAllPassed ? 'var(--success)' : 'var(--text-dim)'}">${r.shipGate.testsAllPassed ? '✓' : '·'}</span><span>dbt tests + contracts pass${r.shipGate.testTotal ? ` (${r.shipGate.testPassed}/${r.shipGate.testTotal})` : ''}</span></div>
             <div class="stage-row"><span class="stage-dot" style="background:${r.shipGate.reconAllPassed ? 'var(--success)' : 'var(--text-dim)'}">${r.shipGate.reconAllPassed ? '✓' : '·'}</span><span>Verified against source (reconciliation)</span></div>
           </div>
           <div class="ai-summary" style="margin-top:10px">${r.shipGate.ready
-            ? 'Ready to ship: every model matched its source and the review queue is clear. Run dbt tests + contracts on the warehouse as the final build-time gate.'
-            : `Not ready: ${escapeHtml(r.shipGate.reason)}. The AI fidelity grade below is a triage signal only — it is <strong>not</strong> a ship criterion.`}</div>
+            ? 'Ready to ship — every gate passed.'
+            : `Not ready: ${escapeHtml(r.shipGate.reason)}.`}</div>
         </div>
 
         <div class="report-card">
-          <h3>🤖 AI fidelity grade <span style="font-weight:400;font-size:var(--text-sm);color:var(--text-muted)">— triage estimate, not a ship criterion</span>
+          <h3>AI fidelity grade <span style="font-weight:400;font-size:var(--text-sm);color:var(--text-muted)">— triage estimate, not a ship criterion</span>
             <button class="btn btn-secondary btn-sm" id="sfreport-regrade" ${r.hasConv ? '' : 'disabled'}>${r.grade ? '↻ Re-score' : 'Score'}</button>
           </h3>
-          <div class="ai-summary" style="font-size:var(--text-xs);color:var(--text-muted);margin-bottom:8px">LLMs are systematically overconfident about their own conversions — use this to <em>prioritise</em> review, never to decide what ships. The ship gate above is the real verdict.</div>
+          <div class="ai-summary" style="font-size:var(--text-xs);color:var(--text-muted);margin-bottom:8px">Use to prioritise review — the ship gate above is the verdict.</div>
           ${r.grade ? `
             <div class="grade-dims">
               ${(r.grade.dimensions || []).map(d => `
@@ -267,7 +267,7 @@ export function renderSfGlueReportPage(container) {
         </div>
 
         <div class="report-card">
-          <h3>✨ AI summary
+          <h3>AI summary
             <button class="btn btn-secondary btn-sm" id="sfreport-summarize" ${r.hasConv ? '' : 'disabled'}>Summarize this migration</button>
           </h3>
           <div class="ai-summary placeholder" id="sfreport-summary-body">${r.hasConv ? 'Click “Summarize this migration” for a plain-English overview of what was migrated and how.' : 'Generate a conversion first, then an AI summary can be produced.'}</div>
@@ -373,7 +373,7 @@ function downloadMarkdown(state, r) {
     `**Target:** ${r.destLabel}  `,
     ``,
     `## Scorecard`,
-    `- **Ship gate (independent of AI grade):** ${r.shipGate.ready ? '✅ READY' : `⛔ NOT READY — ${r.shipGate.reason}`}`,
+    `- **Ship gate (independent of AI grade):** ${r.shipGate.ready ? '✓ READY' : `✗ NOT READY — ${r.shipGate.reason}`}`,
     `- **${r.headline.label}:** ${r.headline.score}%`,
     `- **Tables:** ${r.tableCount}`,
     `- **Columns:** ${r.columnCount}`,

@@ -39,9 +39,9 @@ function statusBadge(conn) {
   if (conn.success) {
     const who = friendlyIdentity(conn.identity);
     const full = (conn.identity && conn.identity.arn) || '';
-    return `<div class="badge badge-success" role="status" aria-live="polite" title="${esc(full).replace(/"/g, '&quot;')}" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;margin-top:4px"><span aria-hidden="true">✓</span> Connected${who ? ` — ${esc(who)}` : ''}</div>`;
+    return `<div class="badge badge-success" role="status" aria-live="polite" title="${esc(full).replace(/"/g, '&quot;')}" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;margin-top:4px">Connected${who ? ` — ${esc(who)}` : ''}</div>`;
   }
-  return `<div class="badge badge-error" role="alert" style="display:block;font-size:11px;margin-top:4px;white-space:normal;word-break:break-word"><span aria-hidden="true">⚠</span> ${esc(conn.error || 'Connection failed')}</div>`;
+  return `<div class="badge badge-error" role="alert" style="display:block;font-size:11px;margin-top:4px;white-space:normal;word-break:break-word">${esc(conn.error || 'Connection failed')}</div>`;
 }
 
 export function renderSfGlueConnectPage(container) {
@@ -91,10 +91,10 @@ export function renderSfGlueConnectPage(container) {
       <!-- source nodes -->
       <g>
         <circle cx="58" cy="42" r="26" fill="var(--primary-soft)" stroke="var(--border)"/>
-        <text x="58" y="50" text-anchor="middle" font-size="22">❄️</text>
+        <text x="58" y="47" text-anchor="middle" font-size="11" font-weight="600" fill="var(--text-secondary)">SF</text>
         <text x="58" y="86" text-anchor="middle" font-size="10" fill="var(--text-muted)">Snowflake</text>
         <circle cx="162" cy="42" r="26" fill="var(--primary-soft)" stroke="var(--border)"/>
-        <text x="162" y="50" text-anchor="middle" font-size="22">🪣</text>
+        <text x="162" y="47" text-anchor="middle" font-size="11" font-weight="600" fill="var(--text-secondary)">Glue</text>
         <text x="162" y="86" text-anchor="middle" font-size="10" fill="var(--text-muted)">AWS Glue</text>
       </g>
       <!-- converging animated flows -->
@@ -121,9 +121,9 @@ export function renderSfGlueConnectPage(container) {
 
   // ── Source tiles (one panel visible at a time) ──────────────────────────────
   const tiles = [
-    { id: 'snowflake', icon: '❄️', name: 'Snowflake', ok: sfOk, note: '' },
-    { id: 'glue',      icon: '🪣', name: 'AWS Glue',  ok: glueOk, note: '' },
-    ...(showPostgresConnect ? [{ id: 'postgres', icon: '🐘', name: 'PostgreSQL', ok: pgOk, note: '(Optional)' }] : []),
+    { id: 'snowflake', icon: '', name: 'Snowflake', ok: sfOk, note: '' },
+    { id: 'glue',      icon: '', name: 'AWS Glue',  ok: glueOk, note: '' },
+    ...(showPostgresConnect ? [{ id: 'postgres', icon: '', name: 'PostgreSQL', ok: pgOk, note: '(Optional)' }] : []),
   ];
   if (!tiles.some(t => t.id === activeConnectTab)) activeConnectTab = 'snowflake';
   const tileRow = tiles.map(t => {
@@ -148,11 +148,9 @@ export function renderSfGlueConnectPage(container) {
         <div class="sidebar-section" style="text-align:center">
           <div class="sidebar-section-title">Migration</div>
           <div style="display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:600;color:var(--text-primary);padding:2px 0;flex-wrap:wrap">
-            <span aria-hidden="true">❄️🪣</span>
-            <span>Snowflake + Glue</span>
+                        <span>Snowflake + Glue</span>
             <span style="color:var(--text-dim)">→</span>
-            <span aria-hidden="true">🧱</span>
-            <span>Databricks / dbt</span>
+                        <span>Databricks / dbt</span>
           </div>
         </div>
 
@@ -161,13 +159,6 @@ export function renderSfGlueConnectPage(container) {
         </div>
 
         <div class="sidebar-section" style="border-top:1px solid var(--border);border-bottom:none;margin-top:auto;padding-bottom:16px">
-          <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px">
-            <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Need help?</div>
-            <div style="font-size:11.5px;color:var(--text-muted);line-height:1.55">
-              Connect at least one source to continue. We read Snowflake tables/views and the Glue
-              Data Catalog + ETL scripts to build the full source→Snowflake lineage.
-            </div>
-          </div>
           <button class="btn btn-outline btn-block" id="sfglue-exit" style="color:var(--text-dim);border-color:var(--border);width:100%;font-size:12px">
             ← Back to home
           </button>
@@ -179,9 +170,8 @@ export function renderSfGlueConnectPage(container) {
         <div class="upload-main-area" style="overflow:auto;padding:28px 32px">
           <div style="max-width:1000px;margin:0 auto">
             <h2 style="margin:0 0 4px;font-size:20px">Connect your sources</h2>
-            <p style="color:var(--text-secondary);margin:0 0 22px;font-size:13px;line-height:1.6">
-              Connect <strong>Snowflake</strong> and <strong>AWS Glue</strong>. We'll read Snowflake tables/views and the Glue
-              Data Catalog + ETL job scripts to build a full source→Snowflake lineage and flag duplication before migrating to Databricks/DBT.
+            <p style="color:var(--text-secondary);margin:0 0 22px;font-size:13px">
+              Connect at least one source — its tables, views and ETL scripts feed the lineage step.
             </p>
 
             <!-- Source tiles — pick which connector to configure -->
@@ -190,8 +180,8 @@ export function renderSfGlueConnectPage(container) {
             <!-- Snowflake panel -->
             <div class="card connect-panel" data-panel="snowflake" style="${activeConnectTab === 'snowflake' ? '' : 'display:none'}">
               <div class="card-header">
-                <div class="card-title"><span aria-hidden="true">❄️</span> Snowflake connection details</div>
-                ${sfOk ? '<span class="badge badge-success" role="status" style="margin-left:auto;font-size:11px"><span aria-hidden="true">✓</span> Connected</span>' : ''}
+                <div class="card-title">Snowflake connection details</div>
+                ${sfOk ? '<span class="badge badge-success" role="status" style="margin-left:auto;font-size:11px">Connected</span>' : ''}
               </div>
               <div class="card-body">
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -217,7 +207,7 @@ export function renderSfGlueConnectPage(container) {
                   : field('sf-schema', 'Schema (optional)', sf.schema, { hint: schemasError ? 'Could not load schemas — type one manually.' : 'Blank = all schemas. Select a database to load its schemas.' })}
                 <div style="display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap">
                   <button class="btn btn-primary" id="sf-test" ${state.isTestingSnowflake ? 'disabled' : ''}>
-                    ${state.isTestingSnowflake ? 'Testing…' : '<span aria-hidden="true">🔌</span> Test connection'}
+                    ${state.isTestingSnowflake ? 'Testing…' : 'Test connection'}
                   </button>
                   <div style="flex:1;min-width:0">${statusBadge(sfConn)}</div>
                   <button class="btn btn-secondary" data-next-tab="glue">Next: AWS Glue →</button>
@@ -228,14 +218,14 @@ export function renderSfGlueConnectPage(container) {
             <!-- AWS Glue panel -->
             <div class="card connect-panel" data-panel="glue" style="${activeConnectTab === 'glue' ? '' : 'display:none'}">
               <div class="card-header">
-                <div class="card-title"><span aria-hidden="true">🪣</span> AWS Glue connection details</div>
-                ${glueOk ? '<span class="badge badge-success" role="status" style="margin-left:auto;font-size:11px"><span aria-hidden="true">✓</span> Connected</span>' : ''}
+                <div class="card-title">AWS Glue connection details</div>
+                ${glueOk ? '<span class="badge badge-success" role="status" style="margin-left:auto;font-size:11px">Connected</span>' : ''}
               </div>
               <div class="card-body">
                   <!-- "Sign in with AWS" — Identity Center device flow; fills the key
                        fields below with short-lived role credentials. -->
                   <button class="btn btn-secondary" id="glue-sso-login" style="width:100%;justify-content:center;margin-bottom:4px">
-                    <span aria-hidden="true">🔐</span> Sign in with AWS SSO
+                    Sign in with AWS SSO
                   </button>
                   <div id="glue-sso-status" role="status" style="font-size:11.5px;color:var(--text-muted);margin-bottom:8px"></div>
                   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -252,7 +242,7 @@ export function renderSfGlueConnectPage(container) {
                   </div>
                   <div style="display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap">
                     <button class="btn btn-primary" id="glue-test" ${state.isTestingGlue ? 'disabled' : ''}>
-                      ${state.isTestingGlue ? 'Testing…' : '<span aria-hidden="true">🔌</span> Test connection'}
+                      ${state.isTestingGlue ? 'Testing…' : 'Test connection'}
                     </button>
                     <div style="flex:1;min-width:0">${statusBadge(glueConn)}</div>
                     ${showPostgresConnect ? '<button class="btn btn-secondary" data-next-tab="postgres">Next: PostgreSQL →</button>' : ''}
@@ -269,8 +259,8 @@ export function renderSfGlueConnectPage(container) {
             <!-- Postgres panel (external origin — optional). Field IDs / handlers unchanged. -->
             <div class="card connect-panel" data-panel="postgres" style="${activeConnectTab === 'postgres' ? '' : 'display:none'}">
               <div class="card-header">
-                <div class="card-title"><span aria-hidden="true">🐘</span> PostgreSQL connection details <span style="font-size:11px;color:var(--text-muted);font-weight:400">(external source — optional)</span></div>
-                ${pgOk ? '<span class="badge badge-success" role="status" style="margin-left:auto;font-size:11px"><span aria-hidden="true">✓</span> Connected</span>' : ''}
+                <div class="card-title">PostgreSQL connection details <span style="font-size:11px;color:var(--text-muted);font-weight:400">(external source — optional)</span></div>
+                ${pgOk ? '<span class="badge badge-success" role="status" style="margin-left:auto;font-size:11px">Connected</span>' : ''}
               </div>
               <div class="card-body">
                 <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px">
@@ -287,7 +277,7 @@ export function renderSfGlueConnectPage(container) {
                 </div>
                 <div style="display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap">
                   <button class="btn btn-primary" id="pg-test" ${state.isTestingPostgres ? 'disabled' : ''}>
-                    ${state.isTestingPostgres ? 'Testing…' : '<span aria-hidden="true">🔌</span> Test connection'}
+                    ${state.isTestingPostgres ? 'Testing…' : 'Test connection'}
                   </button>
                   <div style="flex:1;min-width:0">${statusBadge(pgConn)}</div>
                 </div>
@@ -300,13 +290,13 @@ export function renderSfGlueConnectPage(container) {
         <!-- Bottom Bar -->
         <div class="review-footer">
           <div style="display:flex;align-items:center;gap:8px">
-            ${sfOk ? '<span class="badge badge-success"><span aria-hidden="true">❄️</span> Snowflake connected</span>' : ''}
-            ${glueOk ? '<span class="badge badge-success"><span aria-hidden="true">🪣</span> Glue connected</span>' : ''}
+            ${sfOk ? '<span class="badge badge-success">Snowflake connected</span>' : ''}
+            ${glueOk ? '<span class="badge badge-success">Glue connected</span>' : ''}
             ${!canContinue ? `<span role="status" style="font-size:12px;color:${bothFailed ? 'var(--error)' : 'var(--text-muted)'}">${continueHint}</span>` : ''}
           </div>
           <div style="display:flex;gap:8px">
             <button class="btn btn-secondary btn-lg" id="sfglue-manual" ${canContinue ? '' : 'disabled'} title="Step through it manually">Check lineage →</button>
-            <button class="btn btn-primary btn-lg" id="sfglue-run" ${canContinue ? '' : 'disabled'} title="Run the whole migration automatically, with one review checkpoint">🚀 Run migration</button>
+            <button class="btn btn-primary btn-lg" id="sfglue-run" ${canContinue ? '' : 'disabled'} title="Run the whole migration automatically, with one review checkpoint">Run migration</button>
           </div>
         </div>
       </div>
@@ -475,12 +465,12 @@ export function renderSfGlueConnectPage(container) {
         if (p.status === 'authorized') { authorized = true; break; }
         say(`approve in the AWS tab (code <strong>${esc(s.user_code)}</strong>) — waiting…`);
       }
-      if (!authorized) { say('⚠ sign-in window expired — try again.'); return; }
+      if (!authorized) { say('sign-in window expired — try again.'); return; }
 
       say('signed in ✓ — loading accounts…');
       const acc = await api.awsSsoAccounts(s.session_id);
       const accounts = acc.accounts || [];
-      if (!accounts.length) { say('⚠ no accounts available for this user.'); return; }
+      if (!accounts.length) { say('no accounts available for this user.'); return; }
       // pick account (auto when there's exactly one) and role (auto when one)
       let acct = accounts[0];
       if (accounts.length > 1) {
@@ -511,7 +501,7 @@ export function renderSfGlueConnectPage(container) {
         if (!pick) { say('sign-in cancelled.'); return; }
         role = acct.roles[parseInt(pick.role, 10)] || acct.roles[0];
       }
-      if (!role) { say('⚠ no roles available in that account.'); return; }
+      if (!role) { say('no roles available in that account.'); return; }
 
       say(`getting credentials for ${esc(role)} @ ${esc(acct.account_id)}…`);
       const cred = await api.awsSsoCredentials({ sessionId: s.session_id,
@@ -524,7 +514,7 @@ export function renderSfGlueConnectPage(container) {
       say(`✓ signed in as <strong>${esc(role)}</strong> @ ${esc(acct.account_id)} — credentials valid ~${mins} min. Testing connection…`);
       container.querySelector('#glue-test')?.click();
     } catch (err) {
-      say(`⚠ ${esc(err.message)}`);
+      say(`${esc(err.message)}`);
     }
   });
 

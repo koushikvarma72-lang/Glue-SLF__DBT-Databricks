@@ -1,27 +1,27 @@
 /**
  * Landing / home page for the standalone sfglue app.
  *
- * A full-bleed entry screen (no workflow step-nav) that introduces the tool and
- * explains the pipeline, with one primary CTA into the flow. This is deliberately
- * NOT a registry step — the numbered Connect→…→Report nav only appears once the
- * user enters the workflow. main.js special-cases the 'sfglue-home' route.
+ * A minimal entry screen (no workflow step-nav): what the tool does, one CTA,
+ * and the six steps in a sentence each. Deliberately NOT a registry step — the
+ * numbered Connect→…→Report nav only appears once the user enters the workflow.
+ * main.js special-cases the 'sfglue-home' route.
  */
 import { store } from '../store.js';
 
-// The six workflow stages — this doubles as the "how it works" explanation.
+// The six workflow stages — one sentence each.
 const STAGES = [
-  { n: 1, icon: '🔌', title: 'Connect sources',
-    body: 'Point at your <strong>Snowflake</strong> account and <strong>AWS Glue</strong> catalog (and optionally an upstream Postgres). Credentials stay in your browser and are sent per-request — nothing is baked in.' },
-  { n: 2, icon: '🔗', title: 'Check lineage',
-    body: 'We introspect Snowflake tables/views + view SQL and the Glue Data Catalog + ETL job scripts, then build one <strong>source → Snowflake</strong> dataflow graph and flag duplicate tables & overlapping logic.' },
-  { n: 3, icon: '⚡', title: 'Review & convert',
-    body: 'Pick the tables to migrate and edit the source if needed. AI translates Glue jobs + Snowflake SQL into <strong>dbt models</strong>, <strong>Databricks DDL</strong>, and bronze <strong>PySpark notebooks</strong> — split E+L vs T at the bronze boundary.' },
-  { n: 4, icon: '🧱', title: 'Databricks agent',
-    body: 'A precheck compares the planned targets to what already exists in Unity Catalog (so nothing is duplicated), then deploys DDL and runs the bronze ingestion into your lakehouse.' },
-  { n: 5, icon: '📦', title: 'dbt agent',
-    body: 'Reconcile row counts against the source, run dbt tests & contracts, and export a <strong>runnable dbt project</strong> (dbt_project.yml + profiles + sources/schema/unit tests).' },
-  { n: 6, icon: '📋', title: 'Report',
-    body: 'A migration summary: what was converted, fidelity grade, reconciliation results, and everything you produced — ready to hand off.' },
+  { n: 1, title: 'Connect sources',
+    body: 'Snowflake + AWS Glue (optionally Postgres). Credentials are sent per-request, never stored.' },
+  { n: 2, title: 'Check lineage',
+    body: 'One source → Snowflake dataflow graph, with tables that live in both systems flagged.' },
+  { n: 3, title: 'Review & convert',
+    body: 'Pick tables; AI translates Glue jobs + Snowflake SQL into dbt models, Delta DDL and bronze notebooks.' },
+  { n: 4, title: 'Databricks agent',
+    body: 'Precheck against Unity Catalog, deploy the DDL, run the bronze load.' },
+  { n: 5, title: 'dbt agent',
+    body: 'Verify every table against the source, run dbt tests, export the runnable dbt project.' },
+  { n: 6, title: 'Report',
+    body: 'What moved, whether it matches, and the ship-gate verdict — ready to hand off.' },
 ];
 
 export function renderSfGlueHomePage(container) {
@@ -38,46 +38,36 @@ export function renderSfGlueHomePage(container) {
 
       <header class="sfglue-home-nav">
         <div class="sfglue-home-brand">
-          <span class="sfglue-home-logo" aria-hidden="true">❄️</span>
           <span>sfglue</span>
           <span class="sfglue-home-brand-sub">Snowflake&nbsp;+&nbsp;Glue&nbsp;→&nbsp;Databricks</span>
         </div>
       </header>
 
       <section class="sfglue-home-hero">
-        <div class="sfglue-home-eyebrow">MIGRATION TOOL</div>
         <h1 class="sfglue-home-title">
           Move <span class="hl">Snowflake&nbsp;+&nbsp;AWS&nbsp;Glue</span><br/>
           pipelines to <span class="hl">Databricks&nbsp;&amp;&nbsp;dbt</span>
         </h1>
         <p class="sfglue-home-sub">
-          Connect your warehouse and ETL, get a full lineage graph, and let AI convert Glue jobs
-          and Snowflake SQL into dbt models, Delta DDL, and PySpark notebooks — with a
-          reconciliation gate and a runnable dbt project at the end.
+          AI converts the Glue jobs and Snowflake SQL; a reconciliation gate proves the
+          result matches the source before anything ships.
         </p>
         <div class="sfglue-home-cta">
-          <button class="btn btn-primary sfglue-home-start" id="home-start">${primaryLabel} <span aria-hidden="true">→</span></button>
+          <button class="btn btn-primary sfglue-home-start" id="home-start">${primaryLabel} →</button>
           ${(connected || hasLineage)
             ? `<button class="btn btn-outline" id="home-connect">Connect a new source</button>`
             : ''}
-        </div>
-        <div class="sfglue-home-notes">
-          <span>⚙️ AI runs on Amazon Bedrock by default</span>
-          <span>·</span>
-          <span>🧩 Source-agnostic — works for any Glue + Snowflake flow</span>
         </div>
       </section>
 
       <section class="sfglue-home-how">
         <div class="sfglue-home-how-head">
           <h2>How it works</h2>
-          <p>Six steps from live sources to a deployed, reconciled lakehouse.</p>
         </div>
         <div class="sfglue-home-steps">
           ${STAGES.map(st => `
             <div class="sfglue-home-step">
               <div class="sfglue-home-step-top">
-                <span class="sfglue-home-step-icon" aria-hidden="true">${st.icon}</span>
                 <span class="sfglue-home-step-n">${st.n}</span>
               </div>
               <div class="sfglue-home-step-title">${st.title}</div>
